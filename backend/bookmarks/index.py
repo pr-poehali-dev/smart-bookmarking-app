@@ -50,6 +50,84 @@ def fetch_youtube_meta(url: str) -> dict:
         return {"title": "", "description": "", "preview_url": None}
 
 
+def fetch_vk_meta(url: str) -> dict:
+    """Получаем мета VK Video через oEmbed API."""
+    try:
+        oembed_url = "https://vk.com/oembed.json?url=" + urllib.parse.quote(url)
+        req = urllib.request.Request(
+            oembed_url,
+            headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = json.loads(resp.read().decode())
+        title = data.get("title", "").strip()
+        author = data.get("author_name", "").strip()
+        description = f"Видео от «{author}»" if author else ""
+        preview_url = data.get("thumbnail_url")
+        return {"title": title, "description": description, "preview_url": preview_url}
+    except Exception:
+        return {"title": "", "description": "", "preview_url": None}
+
+
+def guess_social_meta(url: str) -> dict:
+    """Для платформ без публичного API — собираем контекст из структуры URL."""
+    parsed = urllib.parse.urlparse(url)
+    domain = parsed.netloc.replace("www.", "").replace("m.", "")
+    path = parsed.path.strip("/")
+    parts = [p for p in path.split("/") if p]
+
+    # Instagram: /p/{code}/, /reel/{code}/, /{username}/
+    if "instagram.com" in domain:
+        if parts and parts[0] in ("p", "reel", "reels", "tv"):
+            content_type = "video" if parts[0] in ("reel", "reels", "tv") else "article"
+            return {
+                "title": f"Instagram {'Reels' if content_type == 'video' else 'пост'}",
+                "description": "Публикация в Instagram",
+                "preview_url": None,
+                "content_type": content_type,
+            }
+        if parts:
+            return {
+                "title": f"Instagram: @{parts[0]}",
+                "description": f"Профиль @{parts[0]} в Instagram",
+                "preview_url": None,
+                "content_type": "site",
+            }
+
+    # TikTok: /@{user}/video/{id}
+    if "tiktok.com" in domain:
+        user_match = re.search(r"@([\w.]+)", path)
+        user = user_match.group(1) if user_match else None
+        if user:
+            return {
+                "title": f"TikTok: @{user}",
+                "description": f"Видео от @{user} в TikTok",
+                "preview_url": None,
+                "content_type": "video",
+            }
+
+    # Telegram: /c/{channel}/, /s/{channel}/, t.me/{channel}/{id}
+    if "t.me" in domain or "telegram.me" in domain:
+        if parts:
+            channel = parts[0].lstrip("+")
+            post_id = parts[1] if len(parts) > 1 else None
+            if post_id:
+                return {
+                    "title": f"Telegram: {channel} #{post_id}",
+                    "description": f"Пост в Telegram-канале {channel}",
+                    "preview_url": None,
+                    "content_type": "article",
+                }
+            return {
+                "title": f"Telegram-канал: {channel}",
+                "description": f"Канал {channel} в Telegram",
+                "preview_url": None,
+                "content_type": "site",
+            }
+
+    return {"title": "", "description": "", "preview_url": None}
+
+
 def fetch_habr_meta(article_id: str) -> dict:
     """Получаем мета статьи Хабра через публичный API."""
     try:
@@ -76,6 +154,28 @@ def fetch_page_meta(url: str) -> dict:
     # YouTube — через oEmbed
     if re.search(r"(youtube\.com/watch|youtu\.be/)", url):
         result = fetch_youtube_meta(url)
+        if result["title"]:
+            return result
+
+    # VK Video — oEmbed работает только для /video, для clip-* берём guess
+    if re.search(r"vk\.com/video", url):
+        result = fetch_vk_meta(url)
+        if result["title"]:
+            return result
+    if re.search(r"vk\.com/(clip-|clip/|wall-)", url):
+        parsed_vk = urllib.parse.urlparse(url)
+        parts = [p for p in parsed_vk.path.strip("/").split("/") if p]
+        slug = parts[0] if parts else "clip"
+        return {
+            "title": f"VK Клип",
+            "description": f"Клип ВКонтакте ({slug})",
+            "preview_url": None,
+            "content_type": "video",
+        }
+
+    # Instagram, TikTok, Telegram — по структуре URL
+    if re.search(r"(instagram\.com|tiktok\.com|t\.me|telegram\.me)", url):
+        result = guess_social_meta(url)
         if result["title"]:
             return result
 
@@ -295,7 +395,9 @@ def _extract_keywords(url: str, title: str, description: str = "") -> list:
 def _fallback_analyze(url: str, title: str, description: str = "") -> dict:
     """Анализ без AI — по URL и заголовку."""
     url_lower = url.lower()
-    if any(x in url_lower for x in ["youtube", "youtu.be", "vimeo", "rutube", "vkvideo", "kinescope"]):
+    if any(x in url_lower for x in ["youtube", "youtu.be", "vimeo", "rutube", "vkvideo", "kinescope",
+                                      "tiktok.com", "vk.com/video", "vk.com/clip",
+                                      "instagram.com/reel", "instagram.com/p/"]):
         content_type = "video"
     elif any(x in url_lower for x in ["ozon", "wildberries", "aliexpress", "shop", "store", "market", "product"]):
         content_type = "product"
@@ -303,6 +405,8 @@ def _fallback_analyze(url: str, title: str, description: str = "") -> dict:
         content_type = "tool"
     elif any(x in url_lower for x in ["habr", "medium", "vc.ru", "tjournal", "blog", "post", "article"]):
         content_type = "article"
+    elif any(x in url_lower for x in ["t.me", "telegram.me", "instagram.com", "tiktok.com"]):
+        content_type = "site"
     else:
         content_type = "site"
 
@@ -397,6 +501,8 @@ def handler(event: dict, context) -> dict:
         title = meta["title"] or source
         description = meta["description"] or ""
         preview_url = meta["preview_url"]
+        # content_type-подсказка от специализированных парсеров (Instagram Reels, TikTok и т.д.)
+        meta_content_type = meta.get("content_type")
 
         # Загружаем доски для AI
         conn = get_conn()
@@ -411,7 +517,8 @@ def handler(event: dict, context) -> dict:
         except Exception:
             ai_result = _fallback_analyze(url, title, description)
 
-        content_type = ai_result.get("content_type", "article")
+        # Если парсер уже точно знает тип (соцсети) — не переопределяем AI
+        content_type = meta_content_type or ai_result.get("content_type", "article")
         tags = ai_result.get("tags", [])
         suggested_board_id = ai_result.get("suggested_board_id")
         improved_title = ai_result.get("title_improved", "")
