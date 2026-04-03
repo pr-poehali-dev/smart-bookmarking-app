@@ -31,28 +31,73 @@ def extract_domain(url: str) -> str:
         return url
 
 
+def fetch_habr_meta(article_id: str) -> dict:
+    """Получаем мета статьи Хабра через публичный API."""
+    try:
+        api_url = f"https://habr.com/kek/v2/articles/{article_id}/?fl=ru"
+        req = urllib.request.Request(
+            api_url,
+            headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = json.loads(resp.read().decode())
+        title = data.get("titleHtml", "") or data.get("title", "")
+        title = re.sub(r"<[^>]+>", "", title).strip()
+        lead = data.get("leadData", {}) or {}
+        description = lead.get("textHtml", "") or ""
+        description = re.sub(r"<[^>]+>", "", description).strip()[:500]
+        preview_url = (data.get("leadData") or {}).get("imageUrl")
+        return {"title": title, "description": description, "preview_url": preview_url}
+    except Exception:
+        return {"title": "", "description": "", "preview_url": None}
+
+
 def fetch_page_meta(url: str) -> dict:
     """Пытаемся получить title и description страницы."""
+    # Специальная обработка Хабра через API
+    habr_match = re.search(r"habr\.com/[^/]+/articles/(\d+)", url)
+    if habr_match:
+        result = fetch_habr_meta(habr_match.group(1))
+        if result["title"]:
+            return result
+
     try:
         req = urllib.request.Request(
             url,
-            headers={"User-Agent": "Mozilla/5.0 (compatible; NaPolkeBot/1.0)"},
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                              "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.8",
+            },
         )
         with urllib.request.urlopen(req, timeout=8) as resp:
-            raw = resp.read(32768).decode("utf-8", errors="ignore")
+            raw = resp.read(65536).decode("utf-8", errors="ignore")
 
         title_match = re.search(r"<title[^>]*>(.*?)</title>", raw, re.IGNORECASE | re.DOTALL)
         title = title_match.group(1).strip() if title_match else ""
         title = re.sub(r"\s+", " ", title)[:255]
+        # Убираем суффиксы типа "| Habr", "— YouTube", "- VK"
+        title = re.sub(r"\s*[|—\-–]\s*(Habr|Хабр|YouTube|VK|ВКонтакте|Telegram).*$", "", title, flags=re.IGNORECASE).strip()
 
+        # og:description или name=description — пробуем оба варианта
         desc_match = re.search(
-            r'<meta[^>]+(?:name=["\']description["\']|property=["\']og:description["\'])[^>]+content=["\']([^"\']+)',
+            r'<meta[^>]+property=["\']og:description["\'][^>]+content=["\']([^"\']{10,})',
+            raw, re.IGNORECASE
+        ) or re.search(
+            r'<meta[^>]+name=["\']description["\'][^>]+content=["\']([^"\']{10,})',
+            raw, re.IGNORECASE
+        ) or re.search(
+            r'<meta[^>]+content=["\']([^"\']{10,})["\'][^>]+name=["\']description["\']',
             raw, re.IGNORECASE
         )
         description = desc_match.group(1).strip()[:512] if desc_match else ""
 
         preview_match = re.search(
             r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)',
+            raw, re.IGNORECASE
+        ) or re.search(
+            r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']',
             raw, re.IGNORECASE
         )
         preview_url = preview_match.group(1).strip() if preview_match else None
@@ -118,27 +163,41 @@ def ai_analyze(url: str, title: str, description: str, boards: list) -> dict:
 
     boards_info = ", ".join([f"{b['id']}: {b['name']}" for b in boards]) if boards else "нет досок"
 
+    # Подсказка GigaChat когда описание пустое — попросим угадать тему по URL
+    hint = ""
+    if not description and title in ("", url):
+        hint = (
+            "Описание недоступно. Определи тему по структуре URL и домену: "
+            "slugи, path-сегменты и параметры часто раскрывают содержание.\n"
+        )
+
     prompt = (
         "Ты — система классификации закладок. "
-        "Ответь ТОЛЬКО валидным JSON-объектом, без пояснений и без markdown.\n\n"
+        "Ответь ТОЛЬКО валидным JSON-объектом без пояснений и без markdown-блоков.\n\n"
         f"URL: {url}\n"
         f"Заголовок: {title}\n"
-        f"Описание: {description[:300]}\n"
-        f"Доступные доски: {boards_info}\n\n"
-        "Верни JSON:\n"
-        '{"content_type":"article","tags":["тег1","тег2","тег3"],"suggested_board_id":null,"title_improved":""}\n\n'
-        "Правила:\n"
+        f"Описание: {description[:400] if description else '(недоступно)'}\n"
+        f"Доски пользователя: {boards_info}\n"
+        f"{hint}\n"
+        "Пример ответа:\n"
+        '{"content_type":"article","tags":["Python","программирование","обучение"],'
+        '"suggested_board_id":2,"title_improved":""}\n\n'
+        "Требования к тегам:\n"
+        "- 3–5 тегов, отражающих ТЕМУ материала (не источник, не домен)\n"
+        "- на русском языке, конкретные: технология, область знаний, концепция, индустрия\n"
+        "- НЕЛЬЗЯ использовать: 'закладка', 'ссылка', 'статья', 'видео', название сайта\n"
+        "- Примеры хороших тегов: 'TypeScript', 'продуктовый дизайн', 'SEO', 'стартапы', 'UX-исследования'\n\n"
+        "Остальные поля:\n"
         "- content_type: article / video / product / tool / site\n"
-        "- tags: 3-5 конкретных тематических тегов на русском (не 'закладка', не 'ссылка')\n"
-        "- suggested_board_id: число из списка досок или null\n"
-        "- title_improved: улучши заголовок если он плохой, иначе пустая строка"
+        "- suggested_board_id: id подходящей доски или null\n"
+        "- title_improved: читаемый заголовок если оригинал — это просто домен или мусор, иначе пустая строка"
     )
 
     payload = json.dumps({
         "model": "GigaChat",
         "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.2,
-        "max_tokens": 350,
+        "temperature": 0.25,
+        "max_tokens": 400,
     }).encode("utf-8")
 
     ctx = ssl.create_default_context()
@@ -162,10 +221,15 @@ def ai_analyze(url: str, title: str, description: str, boards: list) -> dict:
     content = result["choices"][0]["message"]["content"].strip()
     parsed = parse_ai_json(content)
 
-    # страховка: если теги пустые или содержат мусор — используем fallback-теги
+    # Фильтруем мусорные теги
+    bad_tags = {
+        "закладка", "ссылка", "url", "link", "bookmark", "статья", "видео",
+        "сайт", "страница", "material", "content",
+    }
     tags = parsed.get("tags", [])
-    bad_tags = {"закладка", "ссылка", "url", "link", "bookmark"}
     tags = [t for t in tags if t.lower() not in bad_tags and len(t) > 1]
+
+    # Если GigaChat вернул пустые теги — берём умный fallback
     if not tags:
         tags = _extract_keywords(url, title, description)
     parsed["tags"] = tags[:5]
