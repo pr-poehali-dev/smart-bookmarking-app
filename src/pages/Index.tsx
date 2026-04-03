@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Icon from "@/components/ui/icon";
 import AddBookmarkModal from "@/components/AddBookmarkModal";
 
@@ -37,6 +37,7 @@ interface Bookmark {
   note: string;
   source: string;
   content_type: string;
+  topic: string | null;
   tags: string[];
   board_id: number | null;
   board_name: string | null;
@@ -69,11 +70,27 @@ export default function Index() {
   const [activeNav, setActiveNav] = useState("dashboard");
   const [activeTag, setActiveTag] = useState("Все");
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchInput, setSearchInput] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const [boards, setBoards] = useState<Board[]>([]);
   const [loadingData, setLoadingData] = useState(true);
+  const [searching, setSearching] = useState(false);
   const [savedItems, setSavedItems] = useState<Set<number>>(new Set());
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const loadBookmarks = (q = "") => {
+    const url = q ? `${API_URL}?q=${encodeURIComponent(q)}` : API_URL;
+    setSearching(true);
+    fetch(url)
+      .then((r) => r.json())
+      .then((data) => {
+        setBookmarks(data.bookmarks || []);
+        setSavedItems(new Set((data.bookmarks || []).map((b: Bookmark) => b.id)));
+      })
+      .catch(() => {})
+      .finally(() => setSearching(false));
+  };
 
   useEffect(() => {
     Promise.all([
@@ -83,14 +100,20 @@ export default function Index() {
       .then(([bData, brData]) => {
         setBookmarks(bData.bookmarks || []);
         setBoards(brData.boards || []);
-        const saved = new Set<number>(
-          (bData.bookmarks || []).map((b: Bookmark) => b.id)
-        );
-        setSavedItems(saved);
+        setSavedItems(new Set((bData.bookmarks || []).map((b: Bookmark) => b.id)));
       })
       .catch(() => {})
       .finally(() => setLoadingData(false));
   }, []);
+
+  const handleSearchChange = (value: string) => {
+    setSearchInput(value);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setSearchQuery(value);
+      loadBookmarks(value);
+    }, 400);
+  };
 
   const handleSaved = (newBookmark: Record<string, unknown>) => {
     setBookmarks((prev) => [newBookmark as unknown as Bookmark, ...prev]);
@@ -116,12 +139,7 @@ export default function Index() {
       activeTag === "Все" ||
       (b.tags || []).some((t) => t.toLowerCase().includes(activeTag.toLowerCase())) ||
       b.content_type === activeTag.toLowerCase();
-    const matchSearch =
-      !searchQuery ||
-      (b.title || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (b.description || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (b.source || "").toLowerCase().includes(searchQuery.toLowerCase());
-    return matchNav && matchTag && matchSearch;
+    return matchNav && matchTag;
   });
 
   const navItemsWithBadge = NAV_ITEMS.map((item) =>
@@ -206,20 +224,37 @@ export default function Index() {
         <header className="bg-white border-b border-border px-8 py-4 flex items-center gap-4 flex-shrink-0">
           <div className="flex-1">
             <h1 className="text-[18px] font-semibold text-foreground leading-tight">
-              {activeNav === "inbox" ? "Входящие" : activeNav === "boards" ? "Доски" : "Все закладки"}
+              {searchQuery
+                ? `Поиск: «${searchQuery}»`
+                : activeNav === "inbox" ? "Входящие"
+                : activeNav === "boards" ? "Доски"
+                : "Все закладки"}
             </h1>
-            <p className="text-[12px] text-muted-foreground mt-0.5">{filtered.length} материалов</p>
+            <p className="text-[12px] text-muted-foreground mt-0.5">
+              {filtered.length} {searchQuery ? "результатов" : "материалов"}
+            </p>
           </div>
 
-          <div className="relative w-72">
+          <div className="relative w-80">
             <Icon name="Search" size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input
               type="text"
-              placeholder="Поиск закладок..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 text-[13px] bg-muted border border-transparent rounded-xl focus:outline-none focus:border-border focus:bg-white transition-all placeholder:text-muted-foreground"
+              placeholder="Найди рецепт, маркетинг, дизайн..."
+              value={searchInput}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              className="w-full pl-9 pr-9 py-2 text-[13px] bg-muted border border-transparent rounded-xl focus:outline-none focus:border-border focus:bg-white transition-all placeholder:text-muted-foreground"
             />
+            {searching && (
+              <Icon name="Loader" size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground animate-spin" />
+            )}
+            {!searching && searchInput && (
+              <button
+                onClick={() => { setSearchInput(""); handleSearchChange(""); }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Icon name="X" size={14} />
+              </button>
+            )}
           </div>
 
           <button
@@ -330,6 +365,13 @@ export default function Index() {
                         {item.source || item.url}
                       </p>
                     </div>
+
+                    {item.topic && (
+                      <div className="flex items-center gap-1">
+                        <Icon name="Tag" size={10} className="text-indigo-400 flex-shrink-0" />
+                        <span className="text-[11.5px] font-medium text-indigo-500 truncate">{item.topic}</span>
+                      </div>
+                    )}
 
                     {item.description && (
                       <p className="text-[12.5px] text-muted-foreground leading-relaxed line-clamp-2 flex-1">

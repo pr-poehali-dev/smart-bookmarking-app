@@ -305,24 +305,24 @@ def ai_analyze(url: str, title: str, description: str, boards: list) -> dict:
         f"Доски пользователя: {boards_info}\n"
         f"{hint}\n"
         "Пример ответа:\n"
-        '{"content_type":"article","tags":["Python","программирование","обучение"],'
+        '{"content_type":"article","topic":"программирование","tags":["Python","asyncio","обучение"],'
         '"suggested_board_id":2,"title_improved":""}\n\n'
-        "Требования к тегам:\n"
-        "- 3–5 тегов, отражающих ТЕМУ материала (не источник, не домен)\n"
-        "- на русском языке, конкретные: технология, область знаний, концепция, индустрия\n"
-        "- НЕЛЬЗЯ использовать: 'закладка', 'ссылка', 'статья', 'видео', название сайта\n"
-        "- Примеры хороших тегов: 'TypeScript', 'продуктовый дизайн', 'SEO', 'стартапы', 'UX-исследования'\n\n"
-        "Остальные поля:\n"
-        "- content_type: article / video / product / tool / site\n"
-        "- suggested_board_id: id подходящей доски или null\n"
-        "- title_improved: читаемый заголовок если оригинал — это просто домен или мусор, иначе пустая строка"
+        "Требования:\n"
+        "topic — одна короткая тема на русском (2–3 слова максимум), отвечает на вопрос «о чём этот материал?».\n"
+        "Примеры topic: «рецепты», «маркетинг», «дизайн интерфейсов», «Python», «здоровье», «стартапы», «видеомонтаж».\n\n"
+        "tags — 3–5 конкретных тегов на русском, раскрывающих детали темы.\n"
+        "- НЕЛЬЗЯ: 'закладка', 'ссылка', 'статья', 'видео', название сайта\n"
+        "- Примеры: 'TypeScript', 'продуктовый дизайн', 'SEO', 'UX-исследования'\n\n"
+        "content_type: article / video / product / tool / site\n"
+        "suggested_board_id: id подходящей доски или null\n"
+        "title_improved: читаемый заголовок если оригинал — домен или мусор, иначе пустая строка"
     )
 
     payload = json.dumps({
         "model": "GigaChat",
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.25,
-        "max_tokens": 400,
+        "max_tokens": 450,
     }).encode("utf-8")
 
     ctx = ssl.create_default_context()
@@ -358,6 +358,12 @@ def ai_analyze(url: str, title: str, description: str, boards: list) -> dict:
     if not tags:
         tags = _extract_keywords(url, title, description)
     parsed["tags"] = tags[:5]
+
+    # Нормализуем topic: не пустой и не слишком длинный
+    topic = parsed.get("topic", "").strip()
+    if len(topic) > 60:
+        topic = topic[:60]
+    parsed["topic"] = topic or None
 
     return parsed
 
@@ -411,9 +417,11 @@ def _fallback_analyze(url: str, title: str, description: str = "") -> dict:
         content_type = "site"
 
     tags = _extract_keywords(url, title, description)
+    topic = tags[0] if tags else None
 
     return {
         "content_type": content_type,
+        "topic": topic,
         "tags": tags,
         "suggested_board_id": None,
         "title_improved": "",
@@ -445,19 +453,42 @@ def handler(event: dict, context) -> dict:
             "body": json.dumps({"boards": boards}),
         }
 
-    # GET /bookmarks — список закладок
+    # GET /bookmarks — список закладок (с опциональным поиском ?q=)
     if method == "GET":
+        search_q = query.get("q", "").strip()
         conn = get_conn()
         cur = conn.cursor()
-        cur.execute(f"""
-            SELECT b.id, b.url, b.title, b.description, b.note, b.source,
-                   b.content_type, b.tags, b.board_id, b.preview_url,
-                   b.favicon_url, b.is_inbox, b.created_at,
-                   bo.name as board_name, bo.color as board_color
-            FROM {SCHEMA}.bookmarks b
-            LEFT JOIN {SCHEMA}.boards bo ON b.board_id = bo.id
-            ORDER BY b.created_at DESC
-        """)
+
+        if search_q:
+            # Поиск по заголовку, описанию, тегам, теме и заметке
+            like = f"%{search_q.lower()}%"
+            cur.execute(f"""
+                SELECT b.id, b.url, b.title, b.description, b.note, b.source,
+                       b.content_type, b.tags, b.board_id, b.preview_url,
+                       b.favicon_url, b.is_inbox, b.created_at,
+                       bo.name as board_name, bo.color as board_color, b.topic
+                FROM {SCHEMA}.bookmarks b
+                LEFT JOIN {SCHEMA}.boards bo ON b.board_id = bo.id
+                WHERE lower(b.title) LIKE %s
+                   OR lower(b.description) LIKE %s
+                   OR lower(b.topic) LIKE %s
+                   OR lower(b.note) LIKE %s
+                   OR EXISTS (
+                       SELECT 1 FROM unnest(b.tags) t WHERE lower(t) LIKE %s
+                   )
+                ORDER BY b.created_at DESC
+            """, (like, like, like, like, like))
+        else:
+            cur.execute(f"""
+                SELECT b.id, b.url, b.title, b.description, b.note, b.source,
+                       b.content_type, b.tags, b.board_id, b.preview_url,
+                       b.favicon_url, b.is_inbox, b.created_at,
+                       bo.name as board_name, bo.color as board_color, b.topic
+                FROM {SCHEMA}.bookmarks b
+                LEFT JOIN {SCHEMA}.boards bo ON b.board_id = bo.id
+                ORDER BY b.created_at DESC
+            """)
+
         rows = cur.fetchall()
         conn.close()
         bookmarks = []
@@ -468,12 +499,12 @@ def handler(event: dict, context) -> dict:
                 "tags": r[7] or [], "board_id": r[8], "preview_url": r[9],
                 "favicon_url": r[10], "is_inbox": r[11],
                 "created_at": r[12].isoformat() if r[12] else None,
-                "board_name": r[13], "board_color": r[14],
+                "board_name": r[13], "board_color": r[14], "topic": r[15],
             })
         return {
             "statusCode": 200,
             "headers": CORS_HEADERS,
-            "body": json.dumps({"bookmarks": bookmarks}),
+            "body": json.dumps({"bookmarks": bookmarks, "query": search_q}),
         }
 
     # POST /bookmarks — добавить закладку
@@ -520,6 +551,7 @@ def handler(event: dict, context) -> dict:
         # Если парсер уже точно знает тип (соцсети) — не переопределяем AI
         content_type = meta_content_type or ai_result.get("content_type", "article")
         tags = ai_result.get("tags", [])
+        topic = ai_result.get("topic") or None
         suggested_board_id = ai_result.get("suggested_board_id")
         improved_title = ai_result.get("title_improved", "")
         if improved_title:
@@ -531,11 +563,11 @@ def handler(event: dict, context) -> dict:
         cur.execute(
             f"""INSERT INTO {SCHEMA}.bookmarks
                 (url, title, description, note, source, content_type, tags,
-                 board_id, preview_url, favicon_url, is_inbox, ai_suggested_board_id)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 topic, board_id, preview_url, favicon_url, is_inbox, ai_suggested_board_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id, created_at""",
             (url, title, description, note or None, source, content_type,
-             tags, final_board_id, preview_url, favicon_url, True, suggested_board_id),
+             tags, topic, final_board_id, preview_url, favicon_url, True, suggested_board_id),
         )
         row = cur.fetchone()
         conn.commit()
@@ -552,6 +584,7 @@ def handler(event: dict, context) -> dict:
                 "note": note,
                 "source": source,
                 "content_type": content_type,
+                "topic": topic,
                 "tags": tags,
                 "board_id": final_board_id,
                 "preview_url": preview_url,
