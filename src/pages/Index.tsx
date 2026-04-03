@@ -320,113 +320,139 @@ export default function Index() {
                 return (
                   <div
                     key={item.id}
-                    className="bg-white border border-border rounded-2xl p-5 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 cursor-pointer group animate-fade-in flex flex-col gap-3"
+                    className="bg-white border border-border rounded-2xl overflow-hidden hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 cursor-pointer group animate-fade-in flex flex-col"
                     style={{ animationDelay: `${i * 35}ms` }}
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        {item.favicon_url ? (
-                          <img
-                            src={item.favicon_url}
-                            alt=""
-                            className="w-10 h-10 rounded-xl object-cover flex-shrink-0"
-                            style={{ backgroundColor: bgColor }}
-                            onError={(e) => {
-                              (e.target as HTMLImageElement).style.display = "none";
-                              (e.target as HTMLImageElement).nextElementSibling?.classList.remove("hidden");
-                            }}
-                          />
-                        ) : null}
-                        <div
-                          className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${item.favicon_url ? "hidden" : ""}`}
-                          style={{ backgroundColor: bgColor }}
-                        >
-                          <Icon name={iconName} size={18} className="text-foreground/60" />
-                        </div>
-                      </div>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleSaved(item.id);
-                        }}
-                        className={`p-1.5 rounded-lg transition-all duration-150 opacity-0 group-hover:opacity-100
-                          ${savedItems.has(item.id) ? "!opacity-100 text-indigo-500" : "text-muted-foreground hover:text-foreground"}`}
-                      >
-                        <Icon name={savedItems.has(item.id) ? "Bookmark" : "BookmarkPlus"} size={15} />
-                      </button>
-                    </div>
-
-                    <div>
-                      <h3 className="text-[14px] font-semibold text-foreground leading-snug line-clamp-2">
-                        {item.title || item.source || item.url}
-                      </h3>
-                      <p className="text-[11.5px] text-muted-foreground mt-0.5 flex items-center gap-1">
-                        <Icon name="Globe" size={10} />
-                        {item.source || item.url}
-                      </p>
-                    </div>
-
-                    {item.topic && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSearchInput(item.topic!);
-                          setSearchQuery(item.topic!);
-                          loadBookmarks(item.topic!);
-                        }}
-                        className="flex items-center gap-1 group/topic hover:opacity-80 transition-opacity text-left"
-                      >
-                        <Icon name="Tag" size={10} className="text-indigo-400 flex-shrink-0" />
-                        <span className="text-[11.5px] font-medium text-indigo-500 truncate underline-offset-2 group-hover/topic:underline">{item.topic}</span>
-                      </button>
-                    )}
-
-                    {item.description && (
-                      <p className="text-[12.5px] text-muted-foreground leading-relaxed line-clamp-2 flex-1">
-                        {item.description}
-                      </p>
-                    )}
-
-                    {item.note && (
-                      <div className="flex items-start gap-1.5 bg-amber-50 rounded-lg px-2.5 py-2">
-                        <Icon name="StickyNote" size={11} className="text-amber-500 mt-0.5 flex-shrink-0" />
-                        <p className="text-[11.5px] text-amber-700 line-clamp-1">{item.note}</p>
-                      </div>
-                    )}
-
-                    <div className="flex items-center justify-between pt-1 border-t border-border/60">
-                      <div className="flex gap-1.5 flex-wrap min-w-0">
-                        {(item.tags || []).slice(0, 2).map((tag) => (
-                          <button
-                            key={tag}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSearchInput(tag);
-                              setSearchQuery(tag);
-                              loadBookmarks(tag);
-                            }}
-                            className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-muted text-muted-foreground truncate max-w-[80px] hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
-                          >
-                            {tag}
-                          </button>
-                        ))}
-                        {item.is_inbox && (
-                          <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600">
-                            Входящие
-                          </span>
-                        )}
-                        {item.board_name && (
+                    {/* Превью — если есть thumbnail */}
+                    {item.preview_url ? (
+                      <div className="relative w-full aspect-video overflow-hidden bg-muted flex-shrink-0">
+                        <img
+                          src={item.preview_url}
+                          alt={item.title || ""}
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).closest(".preview-wrap")?.classList.add("hidden");
+                          }}
+                        />
+                        {/* Иконка типа контента поверх превью */}
+                        <div className="absolute bottom-2 left-2">
                           <span
-                            className="text-[11px] font-medium px-2 py-0.5 rounded-full text-white"
-                            style={{ backgroundColor: item.board_color || "#6366f1" }}
+                            className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold text-white"
+                            style={{ backgroundColor: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)" }}
                           >
-                            {item.board_name}
+                            <Icon name={iconName} size={10} />
+                            {item.content_type === "video" ? "Видео" : item.content_type === "article" ? "Статья" : item.content_type}
                           </span>
+                        </div>
+                        {/* Кнопка сохранить */}
+                        <button
+                          onClick={(e) => { e.stopPropagation(); toggleSaved(item.id); }}
+                          className={`absolute top-2 right-2 p-1.5 rounded-lg transition-all duration-150 opacity-0 group-hover:opacity-100
+                            ${savedItems.has(item.id) ? "!opacity-100 text-white bg-indigo-500" : "text-white bg-black/40 hover:bg-black/60"}`}
+                        >
+                          <Icon name={savedItems.has(item.id) ? "Bookmark" : "BookmarkPlus"} size={14} />
+                        </button>
+                      </div>
+                    ) : (
+                      /* Без превью — компактная шапка с иконкой */
+                      <div
+                        className="w-full h-16 flex-shrink-0 flex items-center px-4 gap-3 relative"
+                        style={{ backgroundColor: bgColor }}
+                      >
+                        <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-white/60 flex-shrink-0">
+                          {item.favicon_url ? (
+                            <img
+                              src={item.favicon_url}
+                              alt=""
+                              className="w-6 h-6 object-contain rounded"
+                              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                            />
+                          ) : (
+                            <Icon name={iconName} size={16} className="text-foreground/60" />
+                          )}
+                        </div>
+                        <span className="text-[11px] font-medium text-foreground/50 truncate">{item.source}</span>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); toggleSaved(item.id); }}
+                          className={`absolute top-2 right-2 p-1.5 rounded-lg transition-all duration-150 opacity-0 group-hover:opacity-100
+                            ${savedItems.has(item.id) ? "!opacity-100 text-indigo-500" : "text-foreground/40 hover:text-foreground"}`}
+                        >
+                          <Icon name={savedItems.has(item.id) ? "Bookmark" : "BookmarkPlus"} size={14} />
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Контент карточки */}
+                    <div className="flex flex-col gap-2 p-4 flex-1">
+                      <div>
+                        <h3 className="text-[13.5px] font-semibold text-foreground leading-snug line-clamp-2">
+                          {item.title || item.source || item.url}
+                        </h3>
+                        {item.preview_url && (
+                          <p className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1">
+                            <Icon name="Globe" size={9} />
+                            {item.source}
+                          </p>
                         )}
                       </div>
-                      <span className="text-[11px] text-muted-foreground/60 flex-shrink-0 ml-1">
-                        {item.created_at ? timeAgo(item.created_at) : ""}
-                      </span>
+
+                      {item.topic && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSearchInput(item.topic!);
+                            setSearchQuery(item.topic!);
+                            loadBookmarks(item.topic!);
+                          }}
+                          className="flex items-center gap-1 group/topic hover:opacity-80 transition-opacity text-left w-fit"
+                        >
+                          <Icon name="Tag" size={10} className="text-indigo-400 flex-shrink-0" />
+                          <span className="text-[11px] font-medium text-indigo-500 truncate underline-offset-2 group-hover/topic:underline">{item.topic}</span>
+                        </button>
+                      )}
+
+                      {item.description && !item.preview_url && (
+                        <p className="text-[12px] text-muted-foreground leading-relaxed line-clamp-2">
+                          {item.description}
+                        </p>
+                      )}
+
+                      {item.note && (
+                        <div className="flex items-start gap-1.5 bg-amber-50 rounded-lg px-2.5 py-1.5">
+                          <Icon name="StickyNote" size={10} className="text-amber-500 mt-0.5 flex-shrink-0" />
+                          <p className="text-[11px] text-amber-700 line-clamp-1">{item.note}</p>
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-between mt-auto pt-2 border-t border-border/60">
+                        <div className="flex gap-1.5 flex-wrap min-w-0">
+                          {(item.tags || []).slice(0, 2).map((tag) => (
+                            <button
+                              key={tag}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSearchInput(tag);
+                                setSearchQuery(tag);
+                                loadBookmarks(tag);
+                              }}
+                              className="text-[10.5px] font-medium px-2 py-0.5 rounded-full bg-muted text-muted-foreground truncate max-w-[80px] hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
+                            >
+                              {tag}
+                            </button>
+                          ))}
+                          {item.board_name && (
+                            <span
+                              className="text-[10.5px] font-medium px-2 py-0.5 rounded-full text-white"
+                              style={{ backgroundColor: item.board_color || "#6366f1" }}
+                            >
+                              {item.board_name}
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[10.5px] text-muted-foreground/50 flex-shrink-0 ml-1">
+                          {item.created_at ? timeAgo(item.created_at) : ""}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 );
