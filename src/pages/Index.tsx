@@ -22,22 +22,6 @@ const ALL_TAGS = [
   "Инструменты",
 ];
 
-const CONTENT_TYPE_COLORS: Record<string, string> = {
-  article: "#eef4ff",
-  video: "#fdf2ff",
-  product: "#fff7ed",
-  tool: "#ecfdf3",
-  site: "#f8fafc",
-};
-
-const CONTENT_TYPE_ICONS: Record<string, string> = {
-  article: "FileText",
-  video: "Video",
-  product: "ShoppingBag",
-  tool: "Wrench",
-  site: "Globe",
-};
-
 interface Bookmark {
   id: number;
   url: string;
@@ -113,13 +97,76 @@ function resolvePlayableEmbed(item: Bookmark): string | null {
   return item.embed_url || buildEmbedUrl(item.url);
 }
 
-function prettyType(type: string) {
-  if (type === "video") return "Видео";
-  if (type === "article") return "Статья";
-  if (type === "product") return "Продукт";
-  if (type === "tool") return "Инструмент";
-  if (type === "site") return "Сайт";
-  return type;
+function getPlatformMeta(item: Bookmark) {
+  const source = `${item.source || ""} ${item.url || ""}`.toLowerCase();
+
+  if (source.includes("instagram")) {
+    return {
+      label: "Instagram",
+      icon: "Instagram",
+      chip: "Reels",
+      gradient: "from-pink-500 via-fuchsia-500 to-orange-400",
+      softBg: "bg-pink-50",
+    };
+  }
+
+  if (source.includes("tiktok")) {
+    return {
+      label: "TikTok",
+      icon: "Music2",
+      chip: "TikTok",
+      gradient: "from-neutral-950 via-neutral-900 to-cyan-500",
+      softBg: "bg-neutral-100",
+    };
+  }
+
+  if (source.includes("vk")) {
+    return {
+      label: "VK",
+      icon: "PlaySquare",
+      chip: "Клипы",
+      gradient: "from-blue-600 via-sky-500 to-cyan-400",
+      softBg: "bg-blue-50",
+    };
+  }
+
+  if (source.includes("youtube") || source.includes("youtu.be")) {
+    return {
+      label: "YouTube",
+      icon: "PlayCircle",
+      chip: "Видео",
+      gradient: "from-red-600 via-rose-500 to-orange-400",
+      softBg: "bg-red-50",
+    };
+  }
+
+  return {
+    label: item.source || "Ссылка",
+    icon: "Globe",
+    chip: item.content_type === "video" ? "Видео" : "Контент",
+    gradient: "from-slate-700 via-slate-600 to-slate-400",
+    softBg: "bg-slate-100",
+  };
+}
+
+function getCoverHeightClass(index: number) {
+  const variants = [
+    "aspect-[9/14]",
+    "aspect-[9/15]",
+    "aspect-[9/13]",
+    "aspect-[9/14]",
+    "aspect-[9/16]",
+    "aspect-[9/13]",
+  ];
+
+  return variants[index % variants.length];
+}
+
+function getReadableTitle(
+  item: Bookmark,
+  meta: ReturnType<typeof getPlatformMeta>,
+) {
+  return item.title || item.source || meta.label || item.url;
 }
 
 export default function Index() {
@@ -237,19 +284,19 @@ export default function Index() {
   );
 
   return (
-    <div className="flex h-screen bg-[#fafafa] overflow-hidden font-sans text-foreground">
-      <aside className="hidden lg:flex w-64 flex-shrink-0 bg-white/95 border-r border-black/5 flex-col h-full backdrop-blur">
+    <div className="flex h-screen bg-[#f6f6f7] overflow-hidden font-sans text-foreground">
+      <aside className="hidden xl:flex w-64 flex-shrink-0 bg-white border-r border-black/5 flex-col h-full">
         <div className="px-5 pt-6 pb-4">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-2xl bg-black flex items-center justify-center shadow-sm">
-              <Icon name="BookMarked" size={16} className="text-white" />
+            <div className="w-10 h-10 rounded-2xl bg-black flex items-center justify-center shadow-sm">
+              <Icon name="BookMarked" size={17} className="text-white" />
             </div>
             <div>
               <span className="block text-[15px] font-semibold tracking-tight text-foreground">
                 НаПолке
               </span>
               <span className="block text-[11px] text-muted-foreground">
-                Visual bookmarks
+                Reels / Clips / TikTok
               </span>
             </div>
           </div>
@@ -271,7 +318,7 @@ export default function Index() {
                   item.accent
                     ? "bg-black text-white hover:bg-black/90 shadow-sm"
                     : activeNav === item.id
-                      ? "bg-black/[0.04] text-foreground"
+                      ? "bg-black/[0.05] text-foreground"
                       : "text-muted-foreground hover:bg-black/[0.035] hover:text-foreground"
                 }`}
             >
@@ -330,26 +377,26 @@ export default function Index() {
       </aside>
 
       <main className="flex-1 min-w-0 overflow-hidden flex flex-col">
-        <header className="bg-[#fafafa]/95 backdrop-blur border-b border-black/5 px-4 md:px-6 xl:px-8 py-4 flex flex-col gap-4 flex-shrink-0">
-          <div className="flex flex-col xl:flex-row xl:items-center gap-4">
+        <header className="bg-[#f6f6f7]/95 backdrop-blur border-b border-black/5 px-4 md:px-6 xl:px-8 py-4 flex flex-col gap-4 flex-shrink-0">
+          <div className="flex flex-col lg:flex-row lg:items-center gap-4">
             <div className="min-w-0 flex-1">
-              <h1 className="text-[22px] font-semibold tracking-tight leading-tight">
+              <h1 className="text-[24px] font-semibold tracking-tight leading-tight">
                 {searchQuery
                   ? `Поиск: «${searchQuery}»`
                   : activeNav === "inbox"
                     ? "Входящие"
                     : activeNav === "boards"
                       ? "Доски"
-                      : "Лента закладок"}
+                      : "Лента клипов"}
               </h1>
               <p className="text-[13px] text-muted-foreground mt-1">
                 {filtered.length} {searchQuery ? "результатов" : "материалов"} ·
-                визуальная галерея
+                визуальная лента short-form контента
               </p>
             </div>
 
             <div className="flex items-center gap-3">
-              <div className="relative w-full xl:w-96">
+              <div className="relative w-full lg:w-[430px]">
                 <Icon
                   name="Search"
                   size={15}
@@ -357,7 +404,7 @@ export default function Index() {
                 />
                 <input
                   type="text"
-                  placeholder="Найди рецепт, маркетинг, дизайн..."
+                  placeholder="Найди reels, клипы, tiktok, видео..."
                   value={searchInput}
                   onChange={(e) => handleSearchChange(e.target.value)}
                   className="w-full pl-10 pr-10 py-3 text-[13px] bg-white border border-black/8 rounded-2xl focus:outline-none focus:ring-4 focus:ring-black/[0.04] focus:border-black/10 transition-all placeholder:text-muted-foreground shadow-sm"
@@ -392,7 +439,7 @@ export default function Index() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
+          <div className="flex items-center gap-2 overflow-x-auto">
             {ALL_TAGS.map((tag) => (
               <button
                 key={tag}
@@ -419,17 +466,16 @@ export default function Index() {
 
         <div className="flex-1 overflow-y-auto px-4 md:px-6 xl:px-8 py-6">
           {loadingData ? (
-            <div className="columns-1 sm:columns-2 xl:columns-3 2xl:columns-4 gap-5 [column-fill:_balance]">
-              {Array.from({ length: 8 }).map((_, i) => (
+            <div className="columns-2 md:columns-3 xl:columns-4 2xl:columns-5 gap-5 [column-fill:_balance]">
+              {Array.from({ length: 10 }).map((_, i) => (
                 <div
                   key={i}
-                  className="mb-5 break-inside-avoid rounded-[24px] border border-black/6 bg-white overflow-hidden shadow-[0_4px_20px_rgba(0,0,0,0.04)] animate-pulse"
+                  className="mb-5 break-inside-avoid rounded-[28px] overflow-hidden bg-white border border-black/6 animate-pulse shadow-[0_8px_24px_rgba(0,0,0,0.05)]"
                 >
-                  <div className="h-52 bg-black/[0.05]" />
-                  <div className="p-4">
-                    <div className="h-4 bg-black/[0.05] rounded-lg mb-3 w-3/4" />
-                    <div className="h-3 bg-black/[0.05] rounded-lg mb-2 w-full" />
-                    <div className="h-3 bg-black/[0.05] rounded-lg w-2/3" />
+                  <div className="aspect-[9/14] bg-black/[0.06]" />
+                  <div className="p-3">
+                    <div className="h-4 bg-black/[0.05] rounded-lg mb-2 w-3/4" />
+                    <div className="h-3 bg-black/[0.05] rounded-lg w-1/2" />
                   </div>
                 </div>
               ))}
@@ -437,13 +483,13 @@ export default function Index() {
           ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-[60vh] text-muted-foreground animate-fade-in">
               <div className="w-16 h-16 rounded-full bg-black/[0.04] flex items-center justify-center mb-4">
-                <Icon name="BookmarkPlus" size={28} className="opacity-40" />
+                <Icon name="Film" size={28} className="opacity-40" />
               </div>
               <p className="text-[16px] font-medium text-foreground">
-                Нет закладок
+                Нет клипов
               </p>
               <p className="text-[13px] opacity-70 mt-1 mb-5">
-                Добавьте первую карточку в свою ленту
+                Добавьте первую карточку с обложкой в свою ленту
               </p>
               <button
                 onClick={() => setModalOpen(true)}
@@ -454,78 +500,128 @@ export default function Index() {
               </button>
             </div>
           ) : (
-            <div className="columns-1 sm:columns-2 xl:columns-3 2xl:columns-4 gap-5 [column-fill:_balance]">
+            <div className="columns-2 md:columns-3 xl:columns-4 2xl:columns-5 gap-5 [column-fill:_balance]">
               {filtered.map((item, i) => {
-                const bgColor =
-                  CONTENT_TYPE_COLORS[item.content_type] || "#f8fafc";
-                const iconName =
-                  CONTENT_TYPE_ICONS[item.content_type] || "FileText";
+                const meta = getPlatformMeta(item);
                 const hasPlayableEmbed = Boolean(resolvePlayableEmbed(item));
+                const title = getReadableTitle(item, meta);
 
                 return (
                   <article
                     key={item.id}
                     className="group mb-5 break-inside-avoid cursor-pointer animate-fade-in"
-                    style={{ animationDelay: `${i * 25}ms` }}
+                    style={{ animationDelay: `${i * 20}ms` }}
                     onClick={() => openBookmark(item)}
                   >
-                    <div className="overflow-hidden rounded-[26px] border border-black/6 bg-white shadow-[0_8px_30px_rgba(0,0,0,0.05)] transition-all duration-300 group-hover:-translate-y-1 group-hover:shadow-[0_14px_40px_rgba(0,0,0,0.08)]">
-                      {item.preview_url ? (
-                        <div className="relative overflow-hidden bg-black/[0.03]">
+                    <div className="overflow-hidden rounded-[28px] bg-white border border-black/6 shadow-[0_10px_28px_rgba(0,0,0,0.06)] transition-all duration-300 group-hover:-translate-y-1.5 group-hover:shadow-[0_18px_44px_rgba(0,0,0,0.10)]">
+                      <div
+                        className={`relative ${getCoverHeightClass(i)} overflow-hidden bg-black`}
+                      >
+                        {item.preview_url ? (
                           <img
                             src={item.preview_url}
-                            alt={item.title || ""}
-                            className="w-full h-auto object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+                            alt={title}
+                            className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
                           />
+                        ) : (
+                          <div
+                            className={`absolute inset-0 bg-gradient-to-br ${meta.gradient}`}
+                          />
+                        )}
 
-                          <div className="absolute inset-x-0 top-0 p-3 flex items-start justify-between">
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10.5px] font-semibold text-white bg-black/55 backdrop-blur-md">
-                              <Icon name={iconName} size={10} />
-                              {prettyType(item.content_type)}
-                            </span>
+                        {!item.preview_url && (
+                          <>
+                            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.30),transparent_28%),radial-gradient(circle_at_bottom_left,rgba(255,255,255,0.18),transparent_24%)]" />
+                            <div className="absolute inset-0 flex flex-col justify-between p-4">
+                              <div className="flex items-start justify-between gap-3">
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10.5px] font-semibold text-white bg-white/20 backdrop-blur-md border border-white/20">
+                                  <Icon name={meta.icon} size={11} />
+                                  {meta.chip}
+                                </span>
 
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                toggleSaved(item.id);
-                              }}
-                              className={`p-2 rounded-full backdrop-blur-md transition-all duration-200
-                                ${
-                                  savedItems.has(item.id)
-                                    ? "bg-white text-black"
-                                    : "bg-black/40 text-white opacity-0 group-hover:opacity-100 hover:bg-black/60"
-                                }`}
-                            >
-                              <Icon
-                                name={
-                                  savedItems.has(item.id)
-                                    ? "Bookmark"
-                                    : "BookmarkPlus"
-                                }
-                                size={14}
-                              />
-                            </button>
-                          </div>
+                                <div className="w-9 h-9 rounded-full bg-white/18 backdrop-blur-md border border-white/20 flex items-center justify-center">
+                                  <Icon
+                                    name={meta.icon}
+                                    size={16}
+                                    className="text-white"
+                                  />
+                                </div>
+                              </div>
 
-                          {hasPlayableEmbed && (
-                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                              <div className="w-14 h-14 rounded-full bg-black/45 backdrop-blur-md flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 scale-95 group-hover:scale-100">
-                                <Icon
-                                  name="Play"
-                                  size={20}
-                                  className="text-white ml-0.5"
-                                />
+                              <div>
+                                <div className="w-14 h-14 rounded-[18px] bg-white/16 backdrop-blur-md border border-white/20 flex items-center justify-center mb-3 shadow-sm">
+                                  <Icon
+                                    name={meta.icon}
+                                    size={24}
+                                    className="text-white"
+                                  />
+                                </div>
+
+                                <p className="text-[20px] font-semibold text-white leading-tight tracking-tight">
+                                  {meta.label}
+                                </p>
+                                <p className="text-[12px] text-white/75 mt-1 line-clamp-2">
+                                  {item.title ||
+                                    item.description ||
+                                    item.source ||
+                                    "Короткое видео"}
+                                </p>
                               </div>
                             </div>
-                          )}
+                          </>
+                        )}
 
-                          <div className="absolute inset-x-0 bottom-0 p-3 bg-gradient-to-t from-black/55 via-black/20 to-transparent">
-                            <div className="flex items-center gap-2">
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent" />
+
+                        <div className="absolute inset-x-0 top-0 p-3 flex items-start justify-between gap-3">
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10.5px] font-semibold text-white bg-black/40 backdrop-blur-md">
+                            <Icon name={meta.icon} size={10} />
+                            {meta.chip}
+                          </span>
+
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleSaved(item.id);
+                            }}
+                            className={`p-2 rounded-full backdrop-blur-md transition-all duration-200
+                              ${
+                                savedItems.has(item.id)
+                                  ? "bg-white text-black opacity-100"
+                                  : "bg-black/35 text-white opacity-0 group-hover:opacity-100 hover:bg-black/55"
+                              }`}
+                          >
+                            <Icon
+                              name={
+                                savedItems.has(item.id)
+                                  ? "Bookmark"
+                                  : "BookmarkPlus"
+                              }
+                              size={14}
+                            />
+                          </button>
+                        </div>
+
+                        {hasPlayableEmbed && (
+                          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                            <div className="w-14 h-14 rounded-full bg-black/35 backdrop-blur-md flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 scale-95 group-hover:scale-100 border border-white/15">
+                              <Icon
+                                name="Play"
+                                size={20}
+                                className="text-white ml-0.5"
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="absolute inset-x-0 bottom-0 p-3">
+                          <div className="flex items-center gap-2">
+                            <div className="w-7 h-7 rounded-full bg-white/18 backdrop-blur-md border border-white/15 flex items-center justify-center overflow-hidden flex-shrink-0">
                               {item.favicon_url ? (
                                 <img
                                   src={item.favicon_url}
                                   alt=""
-                                  className="w-5 h-5 rounded bg-white/90 object-contain p-0.5"
+                                  className="w-4 h-4 object-contain"
                                   onError={(e) => {
                                     (
                                       e.target as HTMLImageElement
@@ -533,114 +629,41 @@ export default function Index() {
                                   }}
                                 />
                               ) : (
-                                <div className="w-5 h-5 rounded bg-white/90 flex items-center justify-center">
-                                  <Icon
-                                    name="Globe"
-                                    size={11}
-                                    className="text-black/60"
-                                  />
-                                </div>
+                                <Icon
+                                  name={meta.icon}
+                                  size={12}
+                                  className="text-white"
+                                />
                               )}
+                            </div>
 
-                              <span className="text-[11px] text-white/90 truncate">
-                                {item.source}
-                              </span>
+                            <div className="min-w-0">
+                              <p className="text-[11.5px] font-medium text-white truncate">
+                                {meta.label}
+                              </p>
+                              <p className="text-[10.5px] text-white/70 truncate">
+                                {item.source || item.url}
+                              </p>
                             </div>
                           </div>
                         </div>
-                      ) : (
-                        <div
-                          className="relative px-4 pt-4 pb-3 border-b border-black/5"
-                          style={{ backgroundColor: bgColor }}
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="flex items-center gap-3 min-w-0">
-                              <div className="w-11 h-11 rounded-2xl bg-white/75 flex items-center justify-center shadow-sm flex-shrink-0">
-                                {item.favicon_url ? (
-                                  <img
-                                    src={item.favicon_url}
-                                    alt=""
-                                    className="w-6 h-6 object-contain rounded"
-                                    onError={(e) => {
-                                      (
-                                        e.target as HTMLImageElement
-                                      ).style.display = "none";
-                                    }}
-                                  />
-                                ) : (
-                                  <Icon
-                                    name={iconName}
-                                    size={16}
-                                    className="text-foreground/60"
-                                  />
-                                )}
-                              </div>
+                      </div>
 
-                              <div className="min-w-0">
-                                <p className="text-[11px] uppercase tracking-[0.16em] text-foreground/45 font-semibold">
-                                  {prettyType(item.content_type)}
-                                </p>
-                                <p className="text-[12px] text-foreground/60 truncate mt-1">
-                                  {item.source}
-                                </p>
-                              </div>
-                            </div>
-
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                toggleSaved(item.id);
-                              }}
-                              className={`p-2 rounded-full transition-all duration-200
-                                ${
-                                  savedItems.has(item.id)
-                                    ? "bg-black text-white"
-                                    : "text-foreground/50 hover:text-foreground hover:bg-white/70"
-                                }`}
-                            >
-                              <Icon
-                                name={
-                                  savedItems.has(item.id)
-                                    ? "Bookmark"
-                                    : "BookmarkPlus"
-                                }
-                                size={14}
-                              />
-                            </button>
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="p-4">
+                      <div className="p-3.5">
                         <div className="flex items-start justify-between gap-3">
-                          <h3 className="text-[15px] font-semibold leading-snug tracking-tight line-clamp-3 text-foreground">
-                            {item.title || item.source || item.url}
+                          <h3 className="text-[14.5px] font-semibold leading-snug tracking-tight text-foreground line-clamp-2">
+                            {title}
                           </h3>
 
-                          {!item.preview_url && (
-                            <span className="text-[10.5px] text-muted-foreground flex-shrink-0 pt-0.5">
-                              {item.created_at ? timeAgo(item.created_at) : ""}
-                            </span>
-                          )}
+                          <span className="text-[10.5px] text-muted-foreground flex-shrink-0 pt-0.5">
+                            {item.created_at ? timeAgo(item.created_at) : ""}
+                          </span>
                         </div>
 
                         {item.description && (
-                          <p className="text-[12.5px] text-muted-foreground leading-relaxed mt-2 line-clamp-3">
+                          <p className="text-[12px] text-muted-foreground leading-relaxed mt-2 line-clamp-2">
                             {item.description}
                           </p>
-                        )}
-
-                        {item.note && (
-                          <div className="mt-3 flex items-start gap-2 bg-amber-50 border border-amber-100 rounded-2xl px-3 py-2">
-                            <Icon
-                              name="StickyNote"
-                              size={12}
-                              className="text-amber-500 mt-0.5 flex-shrink-0"
-                            />
-                            <p className="text-[11.5px] text-amber-700 line-clamp-2">
-                              {item.note}
-                            </p>
-                          </div>
                         )}
 
                         {item.topic && (
@@ -653,14 +676,31 @@ export default function Index() {
                             }}
                             className="mt-3 inline-flex items-center gap-1.5 text-[11.5px] font-medium text-indigo-600 hover:text-indigo-700 transition-colors"
                           >
-                            <Icon name="Tag" size={11} />
+                            <Icon name="Hash" size={11} />
                             {item.topic}
                           </button>
                         )}
 
-                        <div className="mt-4 flex items-end justify-between gap-3">
+                        {item.note && (
+                          <div
+                            className={`mt-3 rounded-2xl px-3 py-2 ${meta.softBg}`}
+                          >
+                            <div className="flex items-start gap-2">
+                              <Icon
+                                name="StickyNote"
+                                size={12}
+                                className="text-foreground/50 mt-0.5 flex-shrink-0"
+                              />
+                              <p className="text-[11.5px] text-foreground/70 line-clamp-2">
+                                {item.note}
+                              </p>
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="mt-3 flex items-center justify-between gap-2">
                           <div className="flex flex-wrap gap-1.5 min-w-0">
-                            {(item.tags || []).slice(0, 3).map((tag) => (
+                            {(item.tags || []).slice(0, 2).map((tag) => (
                               <button
                                 key={tag}
                                 onClick={(e) => {
@@ -669,7 +709,7 @@ export default function Index() {
                                   setSearchQuery(tag);
                                   loadBookmarks(tag);
                                 }}
-                                className="text-[10.5px] font-medium px-2.5 py-1 rounded-full bg-black/[0.04] text-muted-foreground truncate max-w-[110px] hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
+                                className="text-[10.5px] font-medium px-2.5 py-1 rounded-full bg-black/[0.04] text-muted-foreground truncate max-w-[100px] hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
                               >
                                 {tag}
                               </button>
@@ -688,11 +728,15 @@ export default function Index() {
                             )}
                           </div>
 
-                          {item.preview_url && (
-                            <span className="text-[10.5px] text-muted-foreground/70 flex-shrink-0">
-                              {item.created_at ? timeAgo(item.created_at) : ""}
-                            </span>
-                          )}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openBookmark(item);
+                            }}
+                            className="w-8 h-8 rounded-full bg-black text-white flex items-center justify-center hover:bg-black/90 transition-colors flex-shrink-0"
+                          >
+                            <Icon name="Play" size={14} className="ml-0.5" />
+                          </button>
                         </div>
                       </div>
                     </div>
