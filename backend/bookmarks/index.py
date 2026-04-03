@@ -90,41 +90,55 @@ def get_gigachat_token() -> str:
     return data.get("access_token", "")
 
 
+def parse_ai_json(raw: str) -> dict:
+    """Надёжный парсинг JSON из ответа GigaChat — вырезаем первый валидный объект."""
+    # убираем markdown-блоки
+    raw = re.sub(r"```json|```", "", raw).strip()
+    # пробуем весь текст целиком
+    try:
+        return json.loads(raw)
+    except Exception:
+        pass
+    # ищем первый {...} блок в тексте
+    match = re.search(r"\{[\s\S]*\}", raw)
+    if match:
+        try:
+            return json.loads(match.group(0))
+        except Exception:
+            pass
+    return {}
+
+
 def ai_analyze(url: str, title: str, description: str, boards: list) -> dict:
     """Отправляем запрос в GigaChat для анализа закладки."""
     import ssl
     token = get_gigachat_token()
     if not token:
-        return _fallback_analyze(url, title)
+        return _fallback_analyze(url, title, description)
 
-    boards_info = ", ".join([f"{b['id']}: {b['name']}" for b in boards])
-    prompt = f"""Проанализируй закладку и верни JSON.
+    boards_info = ", ".join([f"{b['id']}: {b['name']}" for b in boards]) if boards else "нет досок"
 
-URL: {url}
-Заголовок: {title}
-Описание: {description}
-
-Доступные доски: {boards_info}
-
-Верни ТОЛЬКО JSON без пояснений:
-{{
-  "content_type": "article|video|product|tool|site",
-  "tags": ["тег1", "тег2", "тег3", "тег4", "тег5"],
-  "suggested_board_id": <id одной из досок или null>,
-  "title_improved": "<улучшенный заголовок если оригинал плохой, иначе пустая строка>"
-}}
-
-Правила:
-- content_type: article (статья/пост), video (youtube/vimeo), product (магазин/товар), tool (сервис/инструмент), site (другое)
-- tags: 3-5 тегов на русском языке, коротко
-- suggested_board_id: выбери наиболее подходящую доску или null
-"""
+    prompt = (
+        "Ты — система классификации закладок. "
+        "Ответь ТОЛЬКО валидным JSON-объектом, без пояснений и без markdown.\n\n"
+        f"URL: {url}\n"
+        f"Заголовок: {title}\n"
+        f"Описание: {description[:300]}\n"
+        f"Доступные доски: {boards_info}\n\n"
+        "Верни JSON:\n"
+        '{"content_type":"article","tags":["тег1","тег2","тег3"],"suggested_board_id":null,"title_improved":""}\n\n'
+        "Правила:\n"
+        "- content_type: article / video / product / tool / site\n"
+        "- tags: 3-5 конкретных тематических тегов на русском (не 'закладка', не 'ссылка')\n"
+        "- suggested_board_id: число из списка досок или null\n"
+        "- title_improved: улучши заголовок если он плохой, иначе пустая строка"
+    )
 
     payload = json.dumps({
         "model": "GigaChat",
         "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.3,
-        "max_tokens": 300,
+        "temperature": 0.2,
+        "max_tokens": 350,
     }).encode("utf-8")
 
     ctx = ssl.create_default_context()
@@ -142,29 +156,72 @@ URL: {url}
         method="POST",
     )
 
-    with urllib.request.urlopen(req, timeout=20, context=ctx) as resp:
+    with urllib.request.urlopen(req, timeout=25, context=ctx) as resp:
         result = json.loads(resp.read().decode())
 
     content = result["choices"][0]["message"]["content"].strip()
-    content = re.sub(r"```json|```", "", content).strip()
-    return json.loads(content)
+    parsed = parse_ai_json(content)
+
+    # страховка: если теги пустые или содержат мусор — используем fallback-теги
+    tags = parsed.get("tags", [])
+    bad_tags = {"закладка", "ссылка", "url", "link", "bookmark"}
+    tags = [t for t in tags if t.lower() not in bad_tags and len(t) > 1]
+    if not tags:
+        tags = _extract_keywords(url, title, description)
+    parsed["tags"] = tags[:5]
+
+    return parsed
 
 
-def _fallback_analyze(url: str, title: str) -> dict:
-    """Простой анализ без AI."""
+def _extract_keywords(url: str, title: str, description: str = "") -> list:
+    """Извлекаем значимые слова из заголовка и URL для тегов."""
+    stop_words = {
+        "и", "в", "на", "с", "по", "для", "от", "к", "из", "о", "об", "как",
+        "что", "это", "или", "а", "но", "не", "при", "за", "до", "со",
+        "the", "a", "an", "of", "in", "on", "for", "to", "and", "or", "is",
+        "are", "be", "by", "at", "from", "with", "that", "this",
+        "com", "ru", "org", "net", "www", "http", "https",
+    }
+    text = f"{title} {description[:150]}"
+    words = re.findall(r"[а-яёА-ЯЁa-zA-Z]{4,}", text)
+    seen = set()
+    tags = []
+    for w in words:
+        w_low = w.lower()
+        if w_low not in stop_words and w_low not in seen:
+            seen.add(w_low)
+            tags.append(w.capitalize() if w[0].isupper() else w_low)
+        if len(tags) == 4:
+            break
+
+    # добавляем домен как тег если тегов мало
+    domain = re.sub(r"www\.", "", urllib.parse.urlparse(url).netloc or "")
+    domain = re.sub(r"\.(com|ru|org|net|io)$", "", domain)
+    if domain and domain not in seen and len(tags) < 3:
+        tags.append(domain)
+
+    return tags or ["контент"]
+
+
+def _fallback_analyze(url: str, title: str, description: str = "") -> dict:
+    """Анализ без AI — по URL и заголовку."""
     url_lower = url.lower()
-    if any(x in url_lower for x in ["youtube", "vimeo", "rutube"]):
+    if any(x in url_lower for x in ["youtube", "youtu.be", "vimeo", "rutube", "vkvideo", "kinescope"]):
         content_type = "video"
-    elif any(x in url_lower for x in ["shop", "store", "ozon", "wildberries", "market"]):
+    elif any(x in url_lower for x in ["ozon", "wildberries", "aliexpress", "shop", "store", "market", "product"]):
         content_type = "product"
-    elif any(x in url_lower for x in ["github", "npm", "pypi"]):
+    elif any(x in url_lower for x in ["github", "gitlab", "npm", "pypi", "figma", "notion", "trello"]):
         content_type = "tool"
-    else:
+    elif any(x in url_lower for x in ["habr", "medium", "vc.ru", "tjournal", "blog", "post", "article"]):
         content_type = "article"
+    else:
+        content_type = "site"
+
+    tags = _extract_keywords(url, title, description)
 
     return {
         "content_type": content_type,
-        "tags": ["закладка"],
+        "tags": tags,
         "suggested_board_id": None,
         "title_improved": "",
     }
@@ -263,7 +320,7 @@ def handler(event: dict, context) -> dict:
         try:
             ai_result = ai_analyze(url, title, description, boards)
         except Exception:
-            ai_result = _fallback_analyze(url, title)
+            ai_result = _fallback_analyze(url, title, description)
 
         content_type = ai_result.get("content_type", "article")
         tags = ai_result.get("tags", [])
