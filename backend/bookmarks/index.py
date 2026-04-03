@@ -62,10 +62,39 @@ def fetch_page_meta(url: str) -> dict:
         return {"title": "", "description": "", "preview_url": None}
 
 
+def get_gigachat_token() -> str:
+    """Получаем Bearer-токен GigaChat через OAuth."""
+    import uuid
+    import ssl
+    auth_key = os.environ.get("GIGACHAT_AUTH_KEY", "")
+    if not auth_key:
+        return ""
+
+    payload = urllib.parse.urlencode({"scope": "GIGACHAT_API_PERS"}).encode("utf-8")
+    req = urllib.request.Request(
+        "https://ngw.devices.sberbank.ru:9443/api/v2/oauth",
+        data=payload,
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+            "RqUID": str(uuid.uuid4()),
+            "Authorization": f"Basic {auth_key}",
+        },
+        method="POST",
+    )
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
+        data = json.loads(resp.read().decode())
+    return data.get("access_token", "")
+
+
 def ai_analyze(url: str, title: str, description: str, boards: list) -> dict:
-    """Отправляем запрос в OpenAI для анализа закладки."""
-    api_key = os.environ.get("OPENAI_API_KEY", "")
-    if not api_key:
+    """Отправляем запрос в GigaChat для анализа закладки."""
+    import ssl
+    token = get_gigachat_token()
+    if not token:
         return _fallback_analyze(url, title)
 
     boards_info = ", ".join([f"{b['id']}: {b['name']}" for b in boards])
@@ -92,23 +121,28 @@ URL: {url}
 """
 
     payload = json.dumps({
-        "model": "gpt-4o-mini",
+        "model": "GigaChat",
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.3,
         "max_tokens": 300,
     }).encode("utf-8")
 
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+
     req = urllib.request.Request(
-        "https://api.openai.com/v1/chat/completions",
+        "https://gigachat.devices.sberbank.ru/api/v1/chat/completions",
         data=payload,
         headers={
-            "Authorization": f"Bearer {api_key}",
+            "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
+            "Accept": "application/json",
         },
         method="POST",
     )
 
-    with urllib.request.urlopen(req, timeout=15) as resp:
+    with urllib.request.urlopen(req, timeout=20, context=ctx) as resp:
         result = json.loads(resp.read().decode())
 
     content = result["choices"][0]["message"]["content"].strip()
