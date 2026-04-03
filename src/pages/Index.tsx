@@ -44,6 +44,7 @@ interface Bookmark {
   board_color: string | null;
   preview_url: string | null;
   favicon_url: string | null;
+  embed_url: string | null;
   is_inbox: boolean;
   created_at: string;
 }
@@ -77,6 +78,7 @@ export default function Index() {
   const [loadingData, setLoadingData] = useState(true);
   const [searching, setSearching] = useState(false);
   const [savedItems, setSavedItems] = useState<Set<number>>(new Set());
+  const [playerItem, setPlayerItem] = useState<Bookmark | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadBookmarks = (q = "") => {
@@ -322,6 +324,13 @@ export default function Index() {
                     key={item.id}
                     className="bg-white border border-border rounded-2xl overflow-hidden hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 cursor-pointer group animate-fade-in flex flex-col"
                     style={{ animationDelay: `${i * 35}ms` }}
+                    onClick={() => {
+                      if (item.embed_url) {
+                        setPlayerItem(item);
+                      } else {
+                        window.open(item.url, "_blank", "noopener,noreferrer");
+                      }
+                    }}
                   >
                     {/* Превью — если есть thumbnail */}
                     {item.preview_url ? (
@@ -334,6 +343,14 @@ export default function Index() {
                             (e.target as HTMLImageElement).closest(".preview-wrap")?.classList.add("hidden");
                           }}
                         />
+                        {/* Кнопка Play по центру для видео с embed */}
+                        {item.embed_url && (
+                          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                            <div className="w-12 h-12 rounded-full bg-black/60 flex items-center justify-center backdrop-blur-sm">
+                              <Icon name="Play" size={20} className="text-white ml-0.5" />
+                            </div>
+                          </div>
+                        )}
                         {/* Иконка типа контента поверх превью */}
                         <div className="absolute bottom-2 left-2">
                           <span
@@ -467,6 +484,77 @@ export default function Index() {
         onClose={() => setModalOpen(false)}
         onSaved={handleSaved}
       />
+
+      {/* Медиаплеер */}
+      {playerItem && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in"
+          onClick={() => setPlayerItem(null)}
+        >
+          <div
+            className="relative w-full max-w-3xl mx-4 bg-black rounded-2xl overflow-hidden shadow-2xl flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Плеер */}
+            <div className="relative w-full" style={{ aspectRatio: "16/9" }}>
+              <iframe
+                src={playerItem.embed_url!}
+                className="absolute inset-0 w-full h-full"
+                allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+                allowFullScreen
+                referrerPolicy="strict-origin-when-cross-origin"
+              />
+            </div>
+
+            {/* Мета под плеером */}
+            <div className="bg-[#111] px-5 py-4 flex items-start justify-between gap-4">
+              <div className="min-w-0 flex-1">
+                <h2 className="text-[15px] font-semibold text-white leading-snug line-clamp-2">
+                  {playerItem.title}
+                </h2>
+                <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                  <span className="flex items-center gap-1 text-[12px] text-white/50">
+                    <Icon name="Globe" size={11} />
+                    {playerItem.source}
+                  </span>
+                  {playerItem.topic && (
+                    <span className="flex items-center gap-1 text-[12px] text-indigo-400">
+                      <Icon name="Tag" size={11} />
+                      {playerItem.topic}
+                    </span>
+                  )}
+                  {(playerItem.tags || []).slice(0, 3).map((tag) => (
+                    <span key={tag} className="text-[11px] px-2 py-0.5 rounded-full bg-white/10 text-white/60">
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+                {playerItem.description && (
+                  <p className="text-[12px] text-white/40 mt-1.5 line-clamp-2">{playerItem.description}</p>
+                )}
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <a
+                  href={playerItem.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[12px] font-medium transition-colors"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <Icon name="ExternalLink" size={13} />
+                  Открыть
+                </a>
+                <button
+                  onClick={() => setPlayerItem(null)}
+                  className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white/70 hover:text-white transition-colors"
+                >
+                  <Icon name="X" size={16} />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

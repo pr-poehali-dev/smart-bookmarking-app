@@ -31,6 +31,35 @@ def extract_domain(url: str) -> str:
         return url
 
 
+def make_embed_url(url: str) -> str | None:
+    """Генерируем embed-URL для встраивания видео через iframe."""
+    # YouTube: /watch?v=ID или youtu.be/ID
+    yt = re.search(r"(?:youtube\.com/watch\?.*v=|youtu\.be/)([\w-]+)", url)
+    if yt:
+        return f"https://www.youtube.com/embed/{yt.group(1)}?autoplay=1&rel=0"
+
+    # VK Video: vk.com/video-OWNERID_VIDEOID или vk.com/video?z=video...
+    vk_video = re.search(r"vk\.com/video(-?\d+)_(\d+)", url)
+    if vk_video:
+        return f"https://vk.com/video_ext.php?oid={vk_video.group(1)}&id={vk_video.group(2)}&autoplay=1"
+    # VK Clip: vk.com/clip-OWNERID_CLIPID
+    vk_clip = re.search(r"vk\.com/clip(-?\d+)_(\d+)", url)
+    if vk_clip:
+        return f"https://vk.com/video_ext.php?oid={vk_clip.group(1)}&id={vk_clip.group(2)}&autoplay=1"
+
+    # TikTok: /video/ID
+    tt = re.search(r"tiktok\.com/.*/video/(\d+)", url)
+    if tt:
+        return f"https://www.tiktok.com/embed/v2/{tt.group(1)}"
+
+    # Instagram: /reel/CODE/ или /p/CODE/
+    ig = re.search(r"instagram\.com/(?:reel|reels|p|tv)/([\w-]+)", url)
+    if ig:
+        return f"https://www.instagram.com/p/{ig.group(1)}/embed/"
+
+    return None
+
+
 def fetch_youtube_meta(url: str) -> dict:
     """Получаем мета видео YouTube через oEmbed API."""
     try:
@@ -516,7 +545,7 @@ def handler(event: dict, context) -> dict:
                 SELECT b.id, b.url, b.title, b.description, b.note, b.source,
                        b.content_type, b.tags, b.board_id, b.preview_url,
                        b.favicon_url, b.is_inbox, b.created_at,
-                       bo.name as board_name, bo.color as board_color, b.topic
+                       bo.name as board_name, bo.color as board_color, b.topic, b.embed_url
                 FROM {SCHEMA}.bookmarks b
                 LEFT JOIN {SCHEMA}.boards bo ON b.board_id = bo.id
                 WHERE lower(b.title) LIKE %s
@@ -533,7 +562,7 @@ def handler(event: dict, context) -> dict:
                 SELECT b.id, b.url, b.title, b.description, b.note, b.source,
                        b.content_type, b.tags, b.board_id, b.preview_url,
                        b.favicon_url, b.is_inbox, b.created_at,
-                       bo.name as board_name, bo.color as board_color, b.topic
+                       bo.name as board_name, bo.color as board_color, b.topic, b.embed_url
                 FROM {SCHEMA}.bookmarks b
                 LEFT JOIN {SCHEMA}.boards bo ON b.board_id = bo.id
                 ORDER BY b.created_at DESC
@@ -549,7 +578,7 @@ def handler(event: dict, context) -> dict:
                 "tags": r[7] or [], "board_id": r[8], "preview_url": r[9],
                 "favicon_url": r[10], "is_inbox": r[11],
                 "created_at": r[12].isoformat() if r[12] else None,
-                "board_name": r[13], "board_color": r[14], "topic": r[15],
+                "board_name": r[13], "board_color": r[14], "topic": r[15], "embed_url": r[16],
             })
         return {
             "statusCode": 200,
@@ -607,17 +636,20 @@ def handler(event: dict, context) -> dict:
         if improved_title:
             title = improved_title
 
+        # Генерируем embed-URL для встраивания видео
+        embed_url = make_embed_url(url)
+
         # Если пользователь не выбрал доску — берём AI-предложение
         final_board_id = board_id if board_id else suggested_board_id
 
         cur.execute(
             f"""INSERT INTO {SCHEMA}.bookmarks
                 (url, title, description, note, source, content_type, tags,
-                 topic, board_id, preview_url, favicon_url, is_inbox, ai_suggested_board_id)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 topic, board_id, preview_url, favicon_url, is_inbox, ai_suggested_board_id, embed_url)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id, created_at""",
             (url, title, description, note or None, source, content_type,
-             tags, topic, final_board_id, preview_url, favicon_url, True, suggested_board_id),
+             tags, topic, final_board_id, preview_url, favicon_url, True, suggested_board_id, embed_url),
         )
         row = cur.fetchone()
         conn.commit()
@@ -636,6 +668,7 @@ def handler(event: dict, context) -> dict:
                 "content_type": content_type,
                 "topic": topic,
                 "tags": tags,
+                "embed_url": embed_url,
                 "board_id": final_board_id,
                 "preview_url": preview_url,
                 "favicon_url": favicon_url,
