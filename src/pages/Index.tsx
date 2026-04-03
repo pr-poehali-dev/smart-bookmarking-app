@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from "react";
 import Icon from "@/components/ui/icon";
 import AddBookmarkModal from "@/components/AddBookmarkModal";
 
-const API_URL = "https://functions.poehali.dev/d3363e0f-d684-40b4-9fb3-05c6abb7bc12";
+const API_URL =
+  "https://functions.poehali.dev/d3363e0f-d684-40b4-9fb3-05c6abb7bc12";
 
 const NAV_ITEMS = [
   { id: "dashboard", label: "Dashboard", icon: "LayoutDashboard" },
@@ -11,7 +12,15 @@ const NAV_ITEMS = [
   { id: "add", label: "Добавить", icon: "Plus", accent: true },
 ];
 
-const ALL_TAGS = ["Все", "Дизайн", "Разработка", "Маркетинг", "Статьи", "Видео", "Инструменты"];
+const ALL_TAGS = [
+  "Все",
+  "Дизайн",
+  "Разработка",
+  "Маркетинг",
+  "Статьи",
+  "Видео",
+  "Инструменты",
+];
 
 const CONTENT_TYPE_COLORS: Record<string, string> = {
   article: "#f0f4ff",
@@ -67,6 +76,45 @@ function timeAgo(iso: string): string {
   return `${Math.floor(d / 7)} нед. назад`;
 }
 
+function buildEmbedUrl(url: string): string | null {
+  try {
+    const u = new URL(url);
+
+    if (u.hostname.includes("youtube.com")) {
+      const videoId = u.searchParams.get("v");
+      if (videoId) return `https://www.youtube.com/embed/${videoId}?autoplay=1`;
+    }
+
+    if (u.hostname.includes("youtu.be")) {
+      const videoId = u.pathname.replace("/", "");
+      if (videoId) return `https://www.youtube.com/embed/${videoId}?autoplay=1`;
+    }
+
+    if (u.hostname.includes("tiktok.com")) {
+      return `https://www.tiktok.com/embed${u.pathname}`;
+    }
+
+    if (u.hostname.includes("instagram.com")) {
+      if (u.pathname.startsWith("/reel/") || u.pathname.startsWith("/p/")) {
+        const cleanPath = u.pathname.endsWith("/")
+          ? u.pathname
+          : `${u.pathname}/`;
+        return `https://www.instagram.com${cleanPath}embed`;
+      }
+    }
+
+    // Для VK оставляем null, если бэкенд не прислал embed_url.
+    // Иначе можно открыть некорректную страницу вместо настоящего embed.
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function resolvePlayableEmbed(item: Bookmark): string | null {
+  return item.embed_url || buildEmbedUrl(item.url);
+}
+
 export default function Index() {
   const [activeNav, setActiveNav] = useState("dashboard");
   const [activeTag, setActiveTag] = useState("Все");
@@ -84,11 +132,14 @@ export default function Index() {
   const loadBookmarks = (q = "") => {
     const url = q ? `${API_URL}?q=${encodeURIComponent(q)}` : API_URL;
     setSearching(true);
+
     fetch(url)
       .then((r) => r.json())
       .then((data) => {
         setBookmarks(data.bookmarks || []);
-        setSavedItems(new Set((data.bookmarks || []).map((b: Bookmark) => b.id)));
+        setSavedItems(
+          new Set((data.bookmarks || []).map((b: Bookmark) => b.id)),
+        );
       })
       .catch(() => {})
       .finally(() => setSearching(false));
@@ -102,7 +153,9 @@ export default function Index() {
       .then(([bData, brData]) => {
         setBookmarks(bData.bookmarks || []);
         setBoards(brData.boards || []);
-        setSavedItems(new Set((bData.bookmarks || []).map((b: Bookmark) => b.id)));
+        setSavedItems(
+          new Set((bData.bookmarks || []).map((b: Bookmark) => b.id)),
+        );
       })
       .catch(() => {})
       .finally(() => setLoadingData(false));
@@ -110,7 +163,11 @@ export default function Index() {
 
   const handleSearchChange = (value: string) => {
     setSearchInput(value);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+
     debounceRef.current = setTimeout(() => {
       setSearchQuery(value);
       loadBookmarks(value);
@@ -118,46 +175,71 @@ export default function Index() {
   };
 
   const handleSaved = (newBookmark: Record<string, unknown>) => {
-    setBookmarks((prev) => [newBookmark as unknown as Bookmark, ...prev]);
+    setBookmarks((prev) => [newBookmark as Bookmark, ...prev]);
     setSavedItems((prev) => new Set([...prev, newBookmark.id as number]));
   };
 
   const toggleSaved = (id: number) => {
     setSavedItems((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) { next.delete(id); } else { next.add(id); }
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
       return next;
     });
+  };
+
+  const openBookmark = (item: Bookmark) => {
+    const embed = resolvePlayableEmbed(item);
+
+    if (embed) {
+      setPlayerItem({
+        ...item,
+        embed_url: embed,
+      });
+      return;
+    }
+
+    window.open(item.url, "_blank", "noopener,noreferrer");
   };
 
   const inboxCount = bookmarks.filter((b) => b.is_inbox).length;
 
   const filtered = bookmarks.filter((b) => {
     const matchNav =
-      activeNav === "inbox" ? b.is_inbox :
-      activeNav === "boards" ? !b.is_inbox :
-      true;
+      activeNav === "inbox"
+        ? b.is_inbox
+        : activeNav === "boards"
+          ? !b.is_inbox
+          : true;
+
     const matchTag =
       activeTag === "Все" ||
-      (b.tags || []).some((t) => t.toLowerCase().includes(activeTag.toLowerCase())) ||
+      (b.tags || []).some((t) =>
+        t.toLowerCase().includes(activeTag.toLowerCase()),
+      ) ||
       b.content_type === activeTag.toLowerCase();
+
     return matchNav && matchTag;
   });
 
   const navItemsWithBadge = NAV_ITEMS.map((item) =>
-    item.id === "inbox" ? { ...item, badge: inboxCount || undefined } : item
+    item.id === "inbox" ? { ...item, badge: inboxCount || undefined } : item,
   );
 
   return (
     <div className="flex h-screen bg-background overflow-hidden font-sans">
-      {/* Sidebar */}
       <aside className="w-60 flex-shrink-0 bg-white border-r border-border flex flex-col h-full">
         <div className="px-5 pt-6 pb-4">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-xl bg-foreground flex items-center justify-center">
               <Icon name="BookMarked" size={15} className="text-white" />
             </div>
-            <span className="text-[15px] font-semibold tracking-tight text-foreground">НаПолке</span>
+            <span className="text-[15px] font-semibold tracking-tight text-foreground">
+              НаПолке
+            </span>
           </div>
         </div>
 
@@ -173,11 +255,12 @@ export default function Index() {
                 }
               }}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13.5px] font-medium transition-all duration-150
-                ${item.accent
-                  ? "bg-foreground text-white hover:bg-foreground/90"
-                  : activeNav === item.id
-                  ? "bg-muted text-foreground"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                ${
+                  item.accent
+                    ? "bg-foreground text-white hover:bg-foreground/90"
+                    : activeNav === item.id
+                      ? "bg-muted text-foreground"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
                 }`}
             >
               <Icon name={item.icon} size={16} />
@@ -195,12 +278,16 @@ export default function Index() {
               Мои доски
             </span>
           </div>
+
           {boards.map((board) => (
             <button
               key={board.id}
               className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[13px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-all duration-150"
             >
-              <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: board.color }} />
+              <span
+                className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                style={{ backgroundColor: board.color }}
+              />
               <span className="flex-1 text-left truncate">{board.name}</span>
             </button>
           ))}
@@ -212,25 +299,32 @@ export default function Index() {
             <span>Настройки</span>
           </button>
           <div className="flex items-center gap-3 px-3 py-2.5 mt-1">
-            <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center text-[12px] font-semibold text-foreground">А</div>
+            <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center text-[12px] font-semibold text-foreground">
+              А
+            </div>
             <div className="flex-1 min-w-0">
-              <p className="text-[13px] font-medium text-foreground truncate">Алексей</p>
-              <p className="text-[11px] text-muted-foreground truncate">Pro план</p>
+              <p className="text-[13px] font-medium text-foreground truncate">
+                Алексей
+              </p>
+              <p className="text-[11px] text-muted-foreground truncate">
+                Pro план
+              </p>
             </div>
           </div>
         </div>
       </aside>
 
-      {/* Main content */}
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <header className="bg-white border-b border-border px-8 py-4 flex items-center gap-4 flex-shrink-0">
           <div className="flex-1">
             <h1 className="text-[18px] font-semibold text-foreground leading-tight">
               {searchQuery
                 ? `Поиск: «${searchQuery}»`
-                : activeNav === "inbox" ? "Входящие"
-                : activeNav === "boards" ? "Доски"
-                : "Все закладки"}
+                : activeNav === "inbox"
+                  ? "Входящие"
+                  : activeNav === "boards"
+                    ? "Доски"
+                    : "Все закладки"}
             </h1>
             <p className="text-[12px] text-muted-foreground mt-0.5">
               {filtered.length} {searchQuery ? "результатов" : "материалов"}
@@ -238,7 +332,11 @@ export default function Index() {
           </div>
 
           <div className="relative w-80">
-            <Icon name="Search" size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Icon
+              name="Search"
+              size={15}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+            />
             <input
               type="text"
               placeholder="Найди рецепт, маркетинг, дизайн..."
@@ -247,11 +345,18 @@ export default function Index() {
               className="w-full pl-9 pr-9 py-2 text-[13px] bg-muted border border-transparent rounded-xl focus:outline-none focus:border-border focus:bg-white transition-all placeholder:text-muted-foreground"
             />
             {searching && (
-              <Icon name="Loader" size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground animate-spin" />
+              <Icon
+                name="Loader"
+                size={14}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground animate-spin"
+              />
             )}
             {!searching && searchInput && (
               <button
-                onClick={() => { setSearchInput(""); handleSearchChange(""); }}
+                onClick={() => {
+                  setSearchInput("");
+                  handleSearchChange("");
+                }}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
               >
                 <Icon name="X" size={14} />
@@ -269,7 +374,9 @@ export default function Index() {
 
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 border border-indigo-100">
             <Icon name="Sparkles" size={13} className="text-indigo-500" />
-            <span className="text-[12px] font-semibold text-indigo-600">AI-сортировка</span>
+            <span className="text-[12px] font-semibold text-indigo-600">
+              AI-сортировка
+            </span>
           </div>
         </header>
 
@@ -279,9 +386,10 @@ export default function Index() {
               key={tag}
               onClick={() => setActiveTag(tag)}
               className={`flex-shrink-0 px-4 py-1.5 rounded-full text-[12.5px] font-medium transition-all duration-150
-                ${activeTag === tag
-                  ? "bg-foreground text-white"
-                  : "bg-muted text-muted-foreground hover:text-foreground hover:bg-border"
+                ${
+                  activeTag === tag
+                    ? "bg-foreground text-white"
+                    : "bg-muted text-muted-foreground hover:text-foreground hover:bg-border"
                 }`}
             >
               {tag}
@@ -293,7 +401,10 @@ export default function Index() {
           {loadingData ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="bg-white border border-border rounded-2xl p-5 animate-pulse">
+                <div
+                  key={i}
+                  className="bg-white border border-border rounded-2xl p-5 animate-pulse"
+                >
                   <div className="w-10 h-10 bg-muted rounded-xl mb-3" />
                   <div className="h-4 bg-muted rounded-lg mb-2 w-3/4" />
                   <div className="h-3 bg-muted rounded-lg mb-1 w-full" />
@@ -305,7 +416,9 @@ export default function Index() {
             <div className="flex flex-col items-center justify-center h-64 text-muted-foreground animate-fade-in">
               <Icon name="BookmarkPlus" size={36} className="mb-3 opacity-30" />
               <p className="text-[14px] font-medium">Нет закладок</p>
-              <p className="text-[12px] opacity-60 mt-1 mb-4">Добавьте первую закладку</p>
+              <p className="text-[12px] opacity-60 mt-1 mb-4">
+                Добавьте первую закладку
+              </p>
               <button
                 onClick={() => setModalOpen(true)}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-foreground text-white text-[13px] font-semibold hover:bg-foreground/90 transition-all"
@@ -317,61 +430,79 @@ export default function Index() {
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {filtered.map((item, i) => {
-                const bgColor = CONTENT_TYPE_COLORS[item.content_type] || "#f8fafc";
-                const iconName = CONTENT_TYPE_ICONS[item.content_type] || "FileText";
+                const bgColor =
+                  CONTENT_TYPE_COLORS[item.content_type] || "#f8fafc";
+                const iconName =
+                  CONTENT_TYPE_ICONS[item.content_type] || "FileText";
+                const hasPlayableEmbed = Boolean(resolvePlayableEmbed(item));
+
                 return (
                   <div
                     key={item.id}
                     className="bg-white border border-border rounded-2xl overflow-hidden hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 cursor-pointer group animate-fade-in flex flex-col"
                     style={{ animationDelay: `${i * 35}ms` }}
-                    onClick={() => {
-                      if (item.embed_url) {
-                        setPlayerItem(item);
-                      } else {
-                        window.open(item.url, "_blank", "noopener,noreferrer");
-                      }
-                    }}
+                    onClick={() => openBookmark(item)}
                   >
-                    {/* Превью — если есть thumbnail */}
                     {item.preview_url ? (
                       <div className="relative w-full aspect-video overflow-hidden bg-muted flex-shrink-0">
                         <img
                           src={item.preview_url}
                           alt={item.title || ""}
                           className="w-full h-full object-cover"
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).closest(".preview-wrap")?.classList.add("hidden");
-                          }}
                         />
-                        {/* Кнопка Play по центру для видео с embed */}
-                        {item.embed_url && (
+
+                        {hasPlayableEmbed && (
                           <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                             <div className="w-12 h-12 rounded-full bg-black/60 flex items-center justify-center backdrop-blur-sm">
-                              <Icon name="Play" size={20} className="text-white ml-0.5" />
+                              <Icon
+                                name="Play"
+                                size={20}
+                                className="text-white ml-0.5"
+                              />
                             </div>
                           </div>
                         )}
-                        {/* Иконка типа контента поверх превью */}
+
                         <div className="absolute bottom-2 left-2">
                           <span
                             className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold text-white"
-                            style={{ backgroundColor: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)" }}
+                            style={{
+                              backgroundColor: "rgba(0,0,0,0.55)",
+                              backdropFilter: "blur(4px)",
+                            }}
                           >
                             <Icon name={iconName} size={10} />
-                            {item.content_type === "video" ? "Видео" : item.content_type === "article" ? "Статья" : item.content_type}
+                            {item.content_type === "video"
+                              ? "Видео"
+                              : item.content_type === "article"
+                                ? "Статья"
+                                : item.content_type}
                           </span>
                         </div>
-                        {/* Кнопка сохранить */}
+
                         <button
-                          onClick={(e) => { e.stopPropagation(); toggleSaved(item.id); }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleSaved(item.id);
+                          }}
                           className={`absolute top-2 right-2 p-1.5 rounded-lg transition-all duration-150 opacity-0 group-hover:opacity-100
-                            ${savedItems.has(item.id) ? "!opacity-100 text-white bg-indigo-500" : "text-white bg-black/40 hover:bg-black/60"}`}
+                            ${
+                              savedItems.has(item.id)
+                                ? "!opacity-100 text-white bg-indigo-500"
+                                : "text-white bg-black/40 hover:bg-black/60"
+                            }`}
                         >
-                          <Icon name={savedItems.has(item.id) ? "Bookmark" : "BookmarkPlus"} size={14} />
+                          <Icon
+                            name={
+                              savedItems.has(item.id)
+                                ? "Bookmark"
+                                : "BookmarkPlus"
+                            }
+                            size={14}
+                          />
                         </button>
                       </div>
                     ) : (
-                      /* Без превью — компактная шапка с иконкой */
                       <div
                         className="w-full h-16 flex-shrink-0 flex items-center px-4 gap-3 relative"
                         style={{ backgroundColor: bgColor }}
@@ -382,24 +513,48 @@ export default function Index() {
                               src={item.favicon_url}
                               alt=""
                               className="w-6 h-6 object-contain rounded"
-                              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).style.display =
+                                  "none";
+                              }}
                             />
                           ) : (
-                            <Icon name={iconName} size={16} className="text-foreground/60" />
+                            <Icon
+                              name={iconName}
+                              size={16}
+                              className="text-foreground/60"
+                            />
                           )}
                         </div>
-                        <span className="text-[11px] font-medium text-foreground/50 truncate">{item.source}</span>
+
+                        <span className="text-[11px] font-medium text-foreground/50 truncate">
+                          {item.source}
+                        </span>
+
                         <button
-                          onClick={(e) => { e.stopPropagation(); toggleSaved(item.id); }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleSaved(item.id);
+                          }}
                           className={`absolute top-2 right-2 p-1.5 rounded-lg transition-all duration-150 opacity-0 group-hover:opacity-100
-                            ${savedItems.has(item.id) ? "!opacity-100 text-indigo-500" : "text-foreground/40 hover:text-foreground"}`}
+                            ${
+                              savedItems.has(item.id)
+                                ? "!opacity-100 text-indigo-500"
+                                : "text-foreground/40 hover:text-foreground"
+                            }`}
                         >
-                          <Icon name={savedItems.has(item.id) ? "Bookmark" : "BookmarkPlus"} size={14} />
+                          <Icon
+                            name={
+                              savedItems.has(item.id)
+                                ? "Bookmark"
+                                : "BookmarkPlus"
+                            }
+                            size={14}
+                          />
                         </button>
                       </div>
                     )}
 
-                    {/* Контент карточки */}
                     <div className="flex flex-col gap-2 p-4 flex-1">
                       <div>
                         <h3 className="text-[13.5px] font-semibold text-foreground leading-snug line-clamp-2">
@@ -423,8 +578,14 @@ export default function Index() {
                           }}
                           className="flex items-center gap-1 group/topic hover:opacity-80 transition-opacity text-left w-fit"
                         >
-                          <Icon name="Tag" size={10} className="text-indigo-400 flex-shrink-0" />
-                          <span className="text-[11px] font-medium text-indigo-500 truncate underline-offset-2 group-hover/topic:underline">{item.topic}</span>
+                          <Icon
+                            name="Tag"
+                            size={10}
+                            className="text-indigo-400 flex-shrink-0"
+                          />
+                          <span className="text-[11px] font-medium text-indigo-500 truncate underline-offset-2 group-hover/topic:underline">
+                            {item.topic}
+                          </span>
                         </button>
                       )}
 
@@ -436,8 +597,14 @@ export default function Index() {
 
                       {item.note && (
                         <div className="flex items-start gap-1.5 bg-amber-50 rounded-lg px-2.5 py-1.5">
-                          <Icon name="StickyNote" size={10} className="text-amber-500 mt-0.5 flex-shrink-0" />
-                          <p className="text-[11px] text-amber-700 line-clamp-1">{item.note}</p>
+                          <Icon
+                            name="StickyNote"
+                            size={10}
+                            className="text-amber-500 mt-0.5 flex-shrink-0"
+                          />
+                          <p className="text-[11px] text-amber-700 line-clamp-1">
+                            {item.note}
+                          </p>
                         </div>
                       )}
 
@@ -457,15 +624,19 @@ export default function Index() {
                               {tag}
                             </button>
                           ))}
+
                           {item.board_name && (
                             <span
                               className="text-[10.5px] font-medium px-2 py-0.5 rounded-full text-white"
-                              style={{ backgroundColor: item.board_color || "#6366f1" }}
+                              style={{
+                                backgroundColor: item.board_color || "#6366f1",
+                              }}
                             >
                               {item.board_name}
                             </span>
                           )}
                         </div>
+
                         <span className="text-[10.5px] text-muted-foreground/50 flex-shrink-0 ml-1">
                           {item.created_at ? timeAgo(item.created_at) : ""}
                         </span>
@@ -485,7 +656,6 @@ export default function Index() {
         onSaved={handleSaved}
       />
 
-      {/* Медиаплеер */}
       {playerItem && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in"
@@ -495,10 +665,9 @@ export default function Index() {
             className="relative w-full max-w-3xl mx-4 bg-black rounded-2xl overflow-hidden shadow-2xl flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Плеер */}
             <div className="relative w-full" style={{ aspectRatio: "16/9" }}>
               <iframe
-                src={playerItem.embed_url!}
+                src={playerItem.embed_url || undefined}
                 className="absolute inset-0 w-full h-full"
                 allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
                 allowFullScreen
@@ -506,33 +675,42 @@ export default function Index() {
               />
             </div>
 
-            {/* Мета под плеером */}
             <div className="bg-[#111] px-5 py-4 flex items-start justify-between gap-4">
               <div className="min-w-0 flex-1">
                 <h2 className="text-[15px] font-semibold text-white leading-snug line-clamp-2">
                   {playerItem.title}
                 </h2>
+
                 <div className="flex items-center gap-3 mt-1.5 flex-wrap">
                   <span className="flex items-center gap-1 text-[12px] text-white/50">
                     <Icon name="Globe" size={11} />
                     {playerItem.source}
                   </span>
+
                   {playerItem.topic && (
                     <span className="flex items-center gap-1 text-[12px] text-indigo-400">
                       <Icon name="Tag" size={11} />
                       {playerItem.topic}
                     </span>
                   )}
+
                   {(playerItem.tags || []).slice(0, 3).map((tag) => (
-                    <span key={tag} className="text-[11px] px-2 py-0.5 rounded-full bg-white/10 text-white/60">
+                    <span
+                      key={tag}
+                      className="text-[11px] px-2 py-0.5 rounded-full bg-white/10 text-white/60"
+                    >
                       {tag}
                     </span>
                   ))}
                 </div>
+
                 {playerItem.description && (
-                  <p className="text-[12px] text-white/40 mt-1.5 line-clamp-2">{playerItem.description}</p>
+                  <p className="text-[12px] text-white/40 mt-1.5 line-clamp-2">
+                    {playerItem.description}
+                  </p>
                 )}
               </div>
+
               <div className="flex items-center gap-2 flex-shrink-0">
                 <a
                   href={playerItem.url}
@@ -544,6 +722,7 @@ export default function Index() {
                   <Icon name="ExternalLink" size={13} />
                   Открыть
                 </a>
+
                 <button
                   onClick={() => setPlayerItem(null)}
                   className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white/70 hover:text-white transition-colors"
