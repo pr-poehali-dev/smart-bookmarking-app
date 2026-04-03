@@ -367,10 +367,18 @@ export default function Index() {
                     </div>
 
                     {item.topic && (
-                      <div className="flex items-center gap-1">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSearchInput(item.topic!);
+                          setSearchQuery(item.topic!);
+                          loadBookmarks(item.topic!);
+                        }}
+                        className="flex items-center gap-1 group/topic hover:opacity-80 transition-opacity text-left"
+                      >
                         <Icon name="Tag" size={10} className="text-indigo-400 flex-shrink-0" />
-                        <span className="text-[11.5px] font-medium text-indigo-500 truncate">{item.topic}</span>
-                      </div>
+                        <span className="text-[11.5px] font-medium text-indigo-500 truncate underline-offset-2 group-hover/topic:underline">{item.topic}</span>
+                      </button>
                     )}
 
                     {item.description && (
