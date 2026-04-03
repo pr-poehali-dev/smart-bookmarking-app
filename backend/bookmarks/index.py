@@ -69,6 +69,44 @@ def fetch_vk_meta(url: str) -> dict:
         return {"title": "", "description": "", "preview_url": None}
 
 
+def fetch_tiktok_meta(url: str) -> dict:
+    """Получаем мета TikTok видео через oEmbed API."""
+    try:
+        oembed_url = "https://www.tiktok.com/oembed?url=" + urllib.parse.quote(url)
+        req = urllib.request.Request(
+            oembed_url,
+            headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = json.loads(resp.read().decode())
+        title = data.get("title", "").strip()
+        author = data.get("author_name", "").strip()
+        description = f"Видео от @{author} в TikTok" if author else "Видео в TikTok"
+        preview_url = data.get("thumbnail_url")
+        return {"title": title or description, "description": description, "preview_url": preview_url, "content_type": "video"}
+    except Exception:
+        return {"title": "", "description": "", "preview_url": None}
+
+
+def fetch_instagram_meta(url: str) -> dict:
+    """Получаем мета Instagram поста/reels через oEmbed API."""
+    try:
+        oembed_url = "https://graph.facebook.com/v18.0/instagram_oembed?url=" + urllib.parse.quote(url) + "&maxwidth=400"
+        req = urllib.request.Request(
+            oembed_url,
+            headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = json.loads(resp.read().decode())
+        title = data.get("title", "").strip()
+        author = data.get("author_name", "").strip()
+        preview_url = data.get("thumbnail_url")
+        description = f"Публикация @{author} в Instagram" if author else "Публикация в Instagram"
+        return {"title": title or description, "description": description, "preview_url": preview_url, "content_type": "video"}
+    except Exception:
+        return {"title": "", "description": "", "preview_url": None}
+
+
 def guess_social_meta(url: str) -> dict:
     """Для платформ без публичного API — собираем контекст из структуры URL."""
     parsed = urllib.parse.urlparse(url)
@@ -173,7 +211,19 @@ def fetch_page_meta(url: str) -> dict:
             "content_type": "video",
         }
 
-    # Instagram, TikTok, Telegram — по структуре URL
+    # TikTok — через oEmbed (работает для /video/ ссылок)
+    if re.search(r"tiktok\.com/.*video", url):
+        result = fetch_tiktok_meta(url)
+        if result.get("preview_url") or result.get("title"):
+            return result
+
+    # Instagram — через oEmbed (работает без токена только для публичных постов)
+    if re.search(r"instagram\.com/(p|reel|reels|tv)/", url):
+        result = fetch_instagram_meta(url)
+        if result.get("preview_url") or result.get("title"):
+            return result
+
+    # Telegram, TikTok-профили, Instagram-профили — по структуре URL
     if re.search(r"(instagram\.com|tiktok\.com|t\.me|telegram\.me)", url):
         result = guess_social_meta(url)
         if result["title"]:
