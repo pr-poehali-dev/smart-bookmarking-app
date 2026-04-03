@@ -1,103 +1,101 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Icon from "@/components/ui/icon";
+import AddBookmarkModal from "@/components/AddBookmarkModal";
+
+const API_URL = "https://functions.poehali.dev/d3363e0f-d684-40b4-9fb3-05c6abb7bc12";
 
 const NAV_ITEMS = [
   { id: "dashboard", label: "Dashboard", icon: "LayoutDashboard" },
-  { id: "inbox", label: "Входящие", icon: "Inbox", badge: 3 },
+  { id: "inbox", label: "Входящие", icon: "Inbox" },
   { id: "boards", label: "Доски", icon: "SquareKanban" },
   { id: "add", label: "Добавить", icon: "Plus", accent: true },
 ];
 
-const TAGS = ["Все", "Дизайн", "Разработка", "Маркетинг", "Статьи", "Видео", "Инструменты"];
+const ALL_TAGS = ["Все", "Дизайн", "Разработка", "Маркетинг", "Статьи", "Видео", "Инструменты"];
 
-const BOOKMARKS = [
-  {
-    id: 1,
-    title: "Principles of Beautiful UI",
-    url: "nngroup.com",
-    description: "Ключевые принципы визуального дизайна от Nielsen Norman Group — иерархия, контраст и пространство.",
-    tags: ["Дизайн"],
-    category: "Статьи",
-    color: "#f0f4ff",
-    icon: "Palette",
-    time: "2 часа назад",
-    saved: true,
-  },
-  {
-    id: 2,
-    title: "Shadcn UI Components",
-    url: "ui.shadcn.com",
-    description: "Библиотека переиспользуемых компонентов для React, построенная на Radix UI и Tailwind CSS.",
-    tags: ["Разработка"],
-    category: "Инструменты",
-    color: "#f0fdf4",
-    icon: "Code2",
-    time: "Вчера",
-    saved: true,
-  },
-  {
-    id: 3,
-    title: "Копирайтинг для SaaS",
-    url: "copyhackers.com",
-    description: "Как писать тексты для продуктовых лендингов и онбординга, которые конвертируют.",
-    tags: ["Маркетинг"],
-    category: "Статьи",
-    color: "#fff7ed",
-    icon: "FileText",
-    time: "3 дня назад",
-    saved: false,
-  },
-  {
-    id: 4,
-    title: "Figma Auto Layout 2024",
-    url: "figma.com/learn",
-    description: "Полное руководство по Auto Layout — создавай адаптивные компоненты без лишнего кода.",
-    tags: ["Дизайн"],
-    category: "Видео",
-    color: "#fdf4ff",
-    icon: "Video",
-    time: "Неделю назад",
-    saved: true,
-  },
-  {
-    id: 5,
-    title: "TypeScript Cheat Sheet",
-    url: "typescriptlang.org",
-    description: "Быстрый справочник по типам, утилитам и паттернам TypeScript для ежедневной работы.",
-    tags: ["Разработка"],
-    category: "Инструменты",
-    color: "#eff6ff",
-    icon: "Terminal",
-    time: "2 недели назад",
-    saved: false,
-  },
-  {
-    id: 6,
-    title: "Growth Loops vs Funnels",
-    url: "reforge.com",
-    description: "Почему продуктовые петли роста эффективнее классических воронок — разбор на примерах.",
-    tags: ["Маркетинг"],
-    category: "Статьи",
-    color: "#fefce8",
-    icon: "TrendingUp",
-    time: "Месяц назад",
-    saved: true,
-  },
-];
+const CONTENT_TYPE_COLORS: Record<string, string> = {
+  article: "#f0f4ff",
+  video: "#fdf4ff",
+  product: "#fff7ed",
+  tool: "#f0fdf4",
+  site: "#f8fafc",
+};
 
-const BOARDS = [
-  { id: 1, name: "Дизайн-ресурсы", count: 24, color: "#6366f1" },
-  { id: 2, name: "Стартап-инсайты", count: 18, color: "#10b981" },
-  { id: 3, name: "Dev инструменты", count: 31, color: "#f59e0b" },
-];
+const CONTENT_TYPE_ICONS: Record<string, string> = {
+  article: "FileText",
+  video: "Video",
+  product: "ShoppingBag",
+  tool: "Wrench",
+  site: "Globe",
+};
+
+interface Bookmark {
+  id: number;
+  url: string;
+  title: string;
+  description: string;
+  note: string;
+  source: string;
+  content_type: string;
+  tags: string[];
+  board_id: number | null;
+  board_name: string | null;
+  board_color: string | null;
+  preview_url: string | null;
+  favicon_url: string | null;
+  is_inbox: boolean;
+  created_at: string;
+}
+
+interface Board {
+  id: number;
+  name: string;
+  color: string;
+}
+
+function timeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 2) return "Только что";
+  if (m < 60) return `${m} мин. назад`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} ч. назад`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d} дн. назад`;
+  return `${Math.floor(d / 7)} нед. назад`;
+}
 
 export default function Index() {
   const [activeNav, setActiveNav] = useState("dashboard");
   const [activeTag, setActiveTag] = useState("Все");
   const [searchQuery, setSearchQuery] = useState("");
-  const [savedItems, setSavedItems] = useState<Set<number>>(
-    new Set(BOOKMARKS.filter((b) => b.saved).map((b) => b.id))
-  );
+  const [modalOpen, setModalOpen] = useState(false);
+  const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
+  const [boards, setBoards] = useState<Board[]>([]);
+  const [loadingData, setLoadingData] = useState(true);
+  const [savedItems, setSavedItems] = useState<Set<number>>(new Set());
+
+  useEffect(() => {
+    Promise.all([
+      fetch(API_URL).then((r) => r.json()),
+      fetch(`${API_URL}?route=boards`).then((r) => r.json()),
+    ])
+      .then(([bData, brData]) => {
+        setBookmarks(bData.bookmarks || []);
+        setBoards(brData.boards || []);
+        const saved = new Set<number>(
+          (bData.bookmarks || []).map((b: Bookmark) => b.id)
+        );
+        setSavedItems(saved);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingData(false));
+  }, []);
+
+  const handleSaved = (newBookmark: Record<string, unknown>) => {
+    setBookmarks((prev) => [newBookmark as unknown as Bookmark, ...prev]);
+    setSavedItems((prev) => new Set([...prev, newBookmark.id as number]));
+  };
 
   const toggleSaved = (id: number) => {
     setSavedItems((prev) => {
@@ -107,20 +105,33 @@ export default function Index() {
     });
   };
 
-  const filtered = BOOKMARKS.filter((b) => {
-    const matchTag = activeTag === "Все" || b.tags.includes(activeTag);
+  const inboxCount = bookmarks.filter((b) => b.is_inbox).length;
+
+  const filtered = bookmarks.filter((b) => {
+    const matchNav =
+      activeNav === "inbox" ? b.is_inbox :
+      activeNav === "boards" ? !b.is_inbox :
+      true;
+    const matchTag =
+      activeTag === "Все" ||
+      (b.tags || []).some((t) => t.toLowerCase().includes(activeTag.toLowerCase())) ||
+      b.content_type === activeTag.toLowerCase();
     const matchSearch =
       !searchQuery ||
-      b.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      b.description.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchTag && matchSearch;
+      (b.title || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (b.description || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (b.source || "").toLowerCase().includes(searchQuery.toLowerCase());
+    return matchNav && matchTag && matchSearch;
   });
+
+  const navItemsWithBadge = NAV_ITEMS.map((item) =>
+    item.id === "inbox" ? { ...item, badge: inboxCount || undefined } : item
+  );
 
   return (
     <div className="flex h-screen bg-background overflow-hidden font-sans">
       {/* Sidebar */}
       <aside className="w-60 flex-shrink-0 bg-white border-r border-border flex flex-col h-full">
-        {/* Logo */}
         <div className="px-5 pt-6 pb-4">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-xl bg-foreground flex items-center justify-center">
@@ -130,13 +141,18 @@ export default function Index() {
           </div>
         </div>
 
-        {/* Nav */}
         <nav className="flex-1 px-3 py-2 space-y-0.5 overflow-y-auto">
-          {NAV_ITEMS.map((item) => (
+          {navItemsWithBadge.map((item) => (
             <button
               key={item.id}
-              onClick={() => setActiveNav(item.id)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13.5px] font-medium transition-all duration-150 group
+              onClick={() => {
+                if (item.id === "add") {
+                  setModalOpen(true);
+                } else {
+                  setActiveNav(item.id);
+                }
+              }}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13.5px] font-medium transition-all duration-150
                 ${item.accent
                   ? "bg-foreground text-white hover:bg-foreground/90"
                   : activeNav === item.id
@@ -146,45 +162,37 @@ export default function Index() {
             >
               <Icon name={item.icon} size={16} />
               <span className="flex-1 text-left">{item.label}</span>
-              {item.badge && (
+              {item.badge ? (
                 <span className="text-[11px] font-semibold bg-foreground text-white rounded-full w-5 h-5 flex items-center justify-center">
                   {item.badge}
                 </span>
-              )}
+              ) : null}
             </button>
           ))}
 
-          {/* Boards */}
           <div className="pt-5 pb-1 px-3">
             <span className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
               Мои доски
             </span>
           </div>
-          {BOARDS.map((board) => (
+          {boards.map((board) => (
             <button
               key={board.id}
               className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[13px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-all duration-150"
             >
-              <span
-                className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                style={{ backgroundColor: board.color }}
-              />
+              <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: board.color }} />
               <span className="flex-1 text-left truncate">{board.name}</span>
-              <span className="text-[11px] text-muted-foreground/60">{board.count}</span>
             </button>
           ))}
         </nav>
 
-        {/* Settings */}
         <div className="px-3 pb-5 border-t border-border pt-3">
           <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13.5px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-all duration-150">
             <Icon name="Settings" size={16} />
             <span>Настройки</span>
           </button>
           <div className="flex items-center gap-3 px-3 py-2.5 mt-1">
-            <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center text-[12px] font-semibold text-foreground">
-              А
-            </div>
+            <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center text-[12px] font-semibold text-foreground">А</div>
             <div className="flex-1 min-w-0">
               <p className="text-[13px] font-medium text-foreground truncate">Алексей</p>
               <p className="text-[11px] text-muted-foreground truncate">Pro план</p>
@@ -195,20 +203,16 @@ export default function Index() {
 
       {/* Main content */}
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Topbar */}
         <header className="bg-white border-b border-border px-8 py-4 flex items-center gap-4 flex-shrink-0">
           <div className="flex-1">
-            <h1 className="text-[18px] font-semibold text-foreground leading-tight">Все закладки</h1>
+            <h1 className="text-[18px] font-semibold text-foreground leading-tight">
+              {activeNav === "inbox" ? "Входящие" : activeNav === "boards" ? "Доски" : "Все закладки"}
+            </h1>
             <p className="text-[12px] text-muted-foreground mt-0.5">{filtered.length} материалов</p>
           </div>
 
-          {/* Search */}
           <div className="relative w-72">
-            <Icon
-              name="Search"
-              size={15}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-            />
+            <Icon name="Search" size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input
               type="text"
               placeholder="Поиск закладок..."
@@ -218,16 +222,22 @@ export default function Index() {
             />
           </div>
 
-          {/* AI badge */}
+          <button
+            onClick={() => setModalOpen(true)}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-foreground text-white text-[13px] font-semibold hover:bg-foreground/90 transition-all"
+          >
+            <Icon name="Plus" size={14} />
+            Добавить
+          </button>
+
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 border border-indigo-100">
             <Icon name="Sparkles" size={13} className="text-indigo-500" />
             <span className="text-[12px] font-semibold text-indigo-600">AI-сортировка</span>
           </div>
         </header>
 
-        {/* Tags row */}
         <div className="bg-white border-b border-border px-8 py-3 flex items-center gap-2 flex-shrink-0 overflow-x-auto">
-          {TAGS.map((tag) => (
+          {ALL_TAGS.map((tag) => (
             <button
               key={tag}
               onClick={() => setActiveTag(tag)}
@@ -242,84 +252,136 @@ export default function Index() {
           ))}
         </div>
 
-        {/* Cards grid */}
         <div className="flex-1 overflow-y-auto px-8 py-6">
-          {filtered.length === 0 ? (
+          {loadingData ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="bg-white border border-border rounded-2xl p-5 animate-pulse">
+                  <div className="w-10 h-10 bg-muted rounded-xl mb-3" />
+                  <div className="h-4 bg-muted rounded-lg mb-2 w-3/4" />
+                  <div className="h-3 bg-muted rounded-lg mb-1 w-full" />
+                  <div className="h-3 bg-muted rounded-lg w-2/3" />
+                </div>
+              ))}
+            </div>
+          ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-64 text-muted-foreground animate-fade-in">
-              <Icon name="SearchX" size={36} className="mb-3 opacity-40" />
-              <p className="text-[14px] font-medium">Ничего не найдено</p>
-              <p className="text-[12px] opacity-60 mt-1">Попробуйте изменить запрос или тег</p>
+              <Icon name="BookmarkPlus" size={36} className="mb-3 opacity-30" />
+              <p className="text-[14px] font-medium">Нет закладок</p>
+              <p className="text-[12px] opacity-60 mt-1 mb-4">Добавьте первую закладку</p>
+              <button
+                onClick={() => setModalOpen(true)}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-foreground text-white text-[13px] font-semibold hover:bg-foreground/90 transition-all"
+              >
+                <Icon name="Plus" size={14} />
+                Добавить закладку
+              </button>
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filtered.map((item, i) => (
-                <div
-                  key={item.id}
-                  className="bg-white border border-border rounded-2xl p-5 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 cursor-pointer group animate-fade-in flex flex-col gap-3"
-                  style={{ animationDelay: `${i * 40}ms` }}
-                >
-                  {/* Card header */}
-                  <div className="flex items-start justify-between gap-2">
-                    <div
-                      className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                      style={{ backgroundColor: item.color }}
-                    >
-                      <Icon name={item.icon} size={18} className="text-foreground/70" />
-                    </div>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleSaved(item.id);
-                      }}
-                      className={`p-1.5 rounded-lg transition-all duration-150 opacity-0 group-hover:opacity-100
-                        ${savedItems.has(item.id) ? "!opacity-100 text-indigo-500" : "text-muted-foreground hover:text-foreground"}`}
-                    >
-                      <Icon
-                        name={savedItems.has(item.id) ? "Bookmark" : "BookmarkPlus"}
-                        size={15}
-                      />
-                    </button>
-                  </div>
-
-                  {/* Title & url */}
-                  <div>
-                    <h3 className="text-[14px] font-semibold text-foreground leading-snug line-clamp-2">
-                      {item.title}
-                    </h3>
-                    <p className="text-[11.5px] text-muted-foreground mt-0.5 flex items-center gap-1">
-                      <Icon name="Globe" size={10} />
-                      {item.url}
-                    </p>
-                  </div>
-
-                  {/* Description */}
-                  <p className="text-[12.5px] text-muted-foreground leading-relaxed line-clamp-2 flex-1">
-                    {item.description}
-                  </p>
-
-                  {/* Footer */}
-                  <div className="flex items-center justify-between pt-1 border-t border-border/60">
-                    <div className="flex gap-1.5 flex-wrap">
-                      {item.tags.map((tag) => (
-                        <span
-                          key={tag}
-                          className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-muted text-muted-foreground"
+              {filtered.map((item, i) => {
+                const bgColor = CONTENT_TYPE_COLORS[item.content_type] || "#f8fafc";
+                const iconName = CONTENT_TYPE_ICONS[item.content_type] || "FileText";
+                return (
+                  <div
+                    key={item.id}
+                    className="bg-white border border-border rounded-2xl p-5 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 cursor-pointer group animate-fade-in flex flex-col gap-3"
+                    style={{ animationDelay: `${i * 35}ms` }}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        {item.favicon_url ? (
+                          <img
+                            src={item.favicon_url}
+                            alt=""
+                            className="w-10 h-10 rounded-xl object-cover flex-shrink-0"
+                            style={{ backgroundColor: bgColor }}
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.display = "none";
+                              (e.target as HTMLImageElement).nextElementSibling?.classList.remove("hidden");
+                            }}
+                          />
+                        ) : null}
+                        <div
+                          className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${item.favicon_url ? "hidden" : ""}`}
+                          style={{ backgroundColor: bgColor }}
                         >
-                          {tag}
-                        </span>
-                      ))}
-                      <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600">
-                        {item.category}
+                          <Icon name={iconName} size={18} className="text-foreground/60" />
+                        </div>
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleSaved(item.id);
+                        }}
+                        className={`p-1.5 rounded-lg transition-all duration-150 opacity-0 group-hover:opacity-100
+                          ${savedItems.has(item.id) ? "!opacity-100 text-indigo-500" : "text-muted-foreground hover:text-foreground"}`}
+                      >
+                        <Icon name={savedItems.has(item.id) ? "Bookmark" : "BookmarkPlus"} size={15} />
+                      </button>
+                    </div>
+
+                    <div>
+                      <h3 className="text-[14px] font-semibold text-foreground leading-snug line-clamp-2">
+                        {item.title || item.source || item.url}
+                      </h3>
+                      <p className="text-[11.5px] text-muted-foreground mt-0.5 flex items-center gap-1">
+                        <Icon name="Globe" size={10} />
+                        {item.source || item.url}
+                      </p>
+                    </div>
+
+                    {item.description && (
+                      <p className="text-[12.5px] text-muted-foreground leading-relaxed line-clamp-2 flex-1">
+                        {item.description}
+                      </p>
+                    )}
+
+                    {item.note && (
+                      <div className="flex items-start gap-1.5 bg-amber-50 rounded-lg px-2.5 py-2">
+                        <Icon name="StickyNote" size={11} className="text-amber-500 mt-0.5 flex-shrink-0" />
+                        <p className="text-[11.5px] text-amber-700 line-clamp-1">{item.note}</p>
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between pt-1 border-t border-border/60">
+                      <div className="flex gap-1.5 flex-wrap min-w-0">
+                        {(item.tags || []).slice(0, 2).map((tag) => (
+                          <span key={tag} className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-muted text-muted-foreground truncate max-w-[80px]">
+                            {tag}
+                          </span>
+                        ))}
+                        {item.is_inbox && (
+                          <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600">
+                            Входящие
+                          </span>
+                        )}
+                        {item.board_name && (
+                          <span
+                            className="text-[11px] font-medium px-2 py-0.5 rounded-full text-white"
+                            style={{ backgroundColor: item.board_color || "#6366f1" }}
+                          >
+                            {item.board_name}
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[11px] text-muted-foreground/60 flex-shrink-0 ml-1">
+                        {item.created_at ? timeAgo(item.created_at) : ""}
                       </span>
                     </div>
-                    <span className="text-[11px] text-muted-foreground/60 flex-shrink-0">{item.time}</span>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
       </main>
+
+      <AddBookmarkModal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        onSaved={handleSaved}
+      />
     </div>
   );
 }

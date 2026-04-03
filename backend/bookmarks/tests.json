@@ -1,0 +1,29 @@
+{
+  "tests": [
+    {
+      "name": "GET boards list",
+      "method": "GET",
+      "path": "/?route=boards",
+      "expectedStatus": 200,
+      "expectedBody": {"boards": []},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "GET bookmarks list",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 200,
+      "expectedBody": {"bookmarks": []},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "POST bookmark missing url",
+      "method": "POST",
+      "path": "/",
+      "body": {},
+      "expectedStatus": 400,
+      "expectedBody": {"error": "URL обязателен"},
+      "bodyMatcher": "partial"
+    }
+  ]
+}
