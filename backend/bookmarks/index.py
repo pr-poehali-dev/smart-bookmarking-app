@@ -230,7 +230,7 @@ def handler(event: dict, context) -> dict:
     if method == "POST":
         body = json.loads(event.get("body") or "{}")
         url = body.get("url", "").strip()
-        note = body.get("note", "").strip()
+        note = (body.get("note") or "").strip()
         board_id = body.get("board_id")  # None или int
 
         if not url:
