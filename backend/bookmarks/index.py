@@ -31,6 +31,25 @@ def extract_domain(url: str) -> str:
         return url
 
 
+def fetch_youtube_meta(url: str) -> dict:
+    """Получаем мета видео YouTube через oEmbed API."""
+    try:
+        oembed_url = "https://www.youtube.com/oembed?url=" + urllib.parse.quote(url) + "&format=json"
+        req = urllib.request.Request(
+            oembed_url,
+            headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = json.loads(resp.read().decode())
+        title = data.get("title", "").strip()
+        author = data.get("author_name", "").strip()
+        description = f"Видео от канала «{author}»" if author else ""
+        preview_url = data.get("thumbnail_url")
+        return {"title": title, "description": description, "preview_url": preview_url}
+    except Exception:
+        return {"title": "", "description": "", "preview_url": None}
+
+
 def fetch_habr_meta(article_id: str) -> dict:
     """Получаем мета статьи Хабра через публичный API."""
     try:
@@ -54,7 +73,13 @@ def fetch_habr_meta(article_id: str) -> dict:
 
 def fetch_page_meta(url: str) -> dict:
     """Пытаемся получить title и description страницы."""
-    # Специальная обработка Хабра через API
+    # YouTube — через oEmbed
+    if re.search(r"(youtube\.com/watch|youtu\.be/)", url):
+        result = fetch_youtube_meta(url)
+        if result["title"]:
+            return result
+
+    # Хабр — через публичный API
     habr_match = re.search(r"habr\.com/[^/]+/articles/(\d+)", url)
     if habr_match:
         result = fetch_habr_meta(habr_match.group(1))
