@@ -397,9 +397,18 @@ export default function Index() {
                     <div className="flex items-center justify-between pt-1 border-t border-border/60">
                       <div className="flex gap-1.5 flex-wrap min-w-0">
                         {(item.tags || []).slice(0, 2).map((tag) => (
-                          <span key={tag} className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-muted text-muted-foreground truncate max-w-[80px]">
+                          <button
+                            key={tag}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSearchInput(tag);
+                              setSearchQuery(tag);
+                              loadBookmarks(tag);
+                            }}
+                            className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-muted text-muted-foreground truncate max-w-[80px] hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
+                          >
                             {tag}
-                          </span>
+                          </button>
                         ))}
                         {item.is_inbox && (
                           <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600">
