@@ -169,6 +169,29 @@ function getReadableTitle(
   return item.title || item.source || meta.label || item.url;
 }
 
+function getPreviewImage(item: Bookmark): string | null {
+  if (item.preview_url) return item.preview_url;
+
+  try {
+    const u = new URL(item.url);
+    const host = u.hostname.toLowerCase();
+
+    if (host.includes("youtube.com")) {
+      const videoId = u.searchParams.get("v");
+      if (videoId) return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+    }
+
+    if (host.includes("youtu.be")) {
+      const videoId = u.pathname.replace("/", "");
+      if (videoId) return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export default function Index() {
   const [activeNav, setActiveNav] = useState("dashboard");
   const [activeTag, setActiveTag] = useState("Все");
@@ -505,6 +528,7 @@ export default function Index() {
                 const meta = getPlatformMeta(item);
                 const hasPlayableEmbed = Boolean(resolvePlayableEmbed(item));
                 const title = getReadableTitle(item, meta);
+                const cover = getPreviewImage(item);
 
                 return (
                   <article
@@ -517,9 +541,9 @@ export default function Index() {
                       <div
                         className={`relative ${getCoverHeightClass(i)} overflow-hidden bg-black`}
                       >
-                        {item.preview_url ? (
+                        {cover ? (
                           <img
-                            src={item.preview_url}
+                            src={cover}
                             alt={title}
                             className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
                           />
@@ -529,7 +553,7 @@ export default function Index() {
                           />
                         )}
 
-                        {!item.preview_url && (
+                        {!cover && (
                           <>
                             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.30),transparent_28%),radial-gradient(circle_at_bottom_left,rgba(255,255,255,0.18),transparent_24%)]" />
                             <div className="absolute inset-0 flex flex-col justify-between p-4">
