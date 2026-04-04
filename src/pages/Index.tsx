@@ -83,21 +83,6 @@ function getYouTubeVideoId(url: string): string | null {
   }
 }
 
-function getInstagramPath(url: string): string | null {
-  try {
-    const u = new URL(url);
-    if (!u.hostname.includes("instagram.com")) return null;
-
-    if (u.pathname.startsWith("/reel/") || u.pathname.startsWith("/p/")) {
-      return u.pathname.endsWith("/") ? u.pathname : `${u.pathname}/`;
-    }
-
-    return null;
-  } catch {
-    return null;
-  }
-}
-
 function buildEmbedUrl(url: string): string | null {
   try {
     const u = new URL(url);
@@ -128,9 +113,11 @@ function buildEmbedUrl(url: string): string | null {
     }
 
     if (u.hostname.includes("instagram.com")) {
-      const path = getInstagramPath(url);
-      if (path) {
-        return `https://www.instagram.com${path}embed/captioned/`;
+      if (u.pathname.startsWith("/reel/") || u.pathname.startsWith("/p/")) {
+        const cleanPath = u.pathname.endsWith("/")
+          ? u.pathname
+          : `${u.pathname}/`;
+        return `https://www.instagram.com${cleanPath}embed`;
       }
     }
 
@@ -262,16 +249,6 @@ function getBestPreviewUrl(item: Bookmark): string | null {
   return null;
 }
 
-function isInstagramItem(item: Bookmark) {
-  const source = `${item.source || ""} ${item.url || ""}`.toLowerCase();
-  return source.includes("instagram");
-}
-
-function isEmbeddableInModal(item: Bookmark) {
-  if (isInstagramItem(item)) return false;
-  return Boolean(resolvePlayableEmbed(item));
-}
-
 export default function Index() {
   const [activeNav, setActiveNav] = useState("dashboard");
   const [activeTag, setActiveTag] = useState("Все");
@@ -362,7 +339,7 @@ export default function Index() {
     });
 
     try {
-      // Если API поддерживает удаление, раскомментируй:
+      // Если API умеет удалять, раскомментируй:
       // await fetch(`${API_URL}?id=${id}`, { method: "DELETE" });
       await Promise.resolve();
     } catch {
@@ -681,8 +658,7 @@ export default function Index() {
               {filtered.map((item, i) => {
                 const meta = getPlatformMeta(item);
                 const bestPreviewUrl = getBestPreviewUrl(item);
-                const hasPlayableModal =
-                  isEmbeddableInModal(item) || isInstagramItem(item);
+                const hasPlayableEmbed = Boolean(resolvePlayableEmbed(item));
                 const title = getReadableTitle(item, meta);
 
                 return (
@@ -797,7 +773,7 @@ export default function Index() {
                           </div>
                         </div>
 
-                        {hasPlayableModal && (
+                        {hasPlayableEmbed && (
                           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                             <div className="w-14 h-14 rounded-full bg-black/35 backdrop-blur-md flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 scale-95 group-hover:scale-100 border border-white/15">
                               <Icon
@@ -988,68 +964,19 @@ export default function Index() {
             className={`relative ${playerLayout.frameClass} bg-black rounded-[28px] overflow-hidden shadow-2xl flex flex-col`}
             onClick={(e) => e.stopPropagation()}
           >
-            {isEmbeddableInModal(currentPlayerItem) ? (
-              <div
-                className="relative w-full bg-black"
-                style={{ aspectRatio: playerLayout.aspectRatio }}
-              >
-                <iframe
-                  key={currentPlayerItem.id}
-                  src={resolvePlayableEmbed(currentPlayerItem) || undefined}
-                  className="absolute inset-0 w-full h-full"
-                  allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
-                  allowFullScreen
-                  referrerPolicy="strict-origin-when-cross-origin"
-                />
-              </div>
-            ) : (
-              <div
-                className="relative w-full bg-black flex items-center justify-center"
-                style={{ aspectRatio: playerLayout.aspectRatio }}
-              >
-                {getBestPreviewUrl(currentPlayerItem) ? (
-                  <img
-                    src={getBestPreviewUrl(currentPlayerItem)!}
-                    alt={currentPlayerItem.title}
-                    className="absolute inset-0 w-full h-full object-cover"
-                  />
-                ) : (
-                  <div
-                    className={`absolute inset-0 bg-gradient-to-br ${getPlatformMeta(currentPlayerItem).gradient}`}
-                  />
-                )}
-
-                <div className="absolute inset-0 bg-black/35" />
-
-                <div className="relative z-10 px-6 text-center">
-                  <div className="mx-auto mb-4 w-16 h-16 rounded-full bg-white/15 backdrop-blur-md border border-white/15 flex items-center justify-center">
-                    <Icon
-                      name={getPlatformMeta(currentPlayerItem).icon}
-                      size={26}
-                      className="text-white"
-                    />
-                  </div>
-
-                  <p className="text-white text-[18px] font-semibold">
-                    Предпросмотр Instagram
-                  </p>
-                  <p className="text-white/70 text-[13px] mt-2 max-w-[280px]">
-                    Для Instagram показываем красивую обложку вместо тяжелого
-                    embed.
-                  </p>
-
-                  <a
-                    href={currentPlayerItem.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex mt-5 items-center gap-2 px-4 py-2.5 rounded-2xl bg-white text-black text-[13px] font-semibold hover:bg-white/90 transition-colors"
-                  >
-                    <Icon name="ExternalLink" size={14} />
-                    Открыть в Instagram
-                  </a>
-                </div>
-              </div>
-            )}
+            <div
+              className="relative w-full bg-black"
+              style={{ aspectRatio: playerLayout.aspectRatio }}
+            >
+              <iframe
+                key={currentPlayerItem.id}
+                src={resolvePlayableEmbed(currentPlayerItem) || undefined}
+                className="absolute inset-0 w-full h-full"
+                allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+                allowFullScreen
+                referrerPolicy="strict-origin-when-cross-origin"
+              />
+            </div>
 
             <div className="bg-[#111] px-5 py-4 flex items-start justify-between gap-4">
               <div className="min-w-0 flex-1">
