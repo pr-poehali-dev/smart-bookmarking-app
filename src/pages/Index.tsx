@@ -74,6 +74,14 @@ function buildEmbedUrl(url: string): string | null {
       if (videoId) return `https://www.youtube.com/embed/${videoId}?autoplay=1`;
     }
 
+    if (
+      u.hostname.includes("youtube.com") &&
+      u.pathname.startsWith("/shorts/")
+    ) {
+      const videoId = u.pathname.split("/shorts/")[1]?.split("/")[0];
+      if (videoId) return `https://www.youtube.com/embed/${videoId}?autoplay=1`;
+    }
+
     if (u.hostname.includes("tiktok.com")) {
       return `https://www.tiktok.com/embed${u.pathname}`;
     }
@@ -149,24 +157,54 @@ function getPlatformMeta(item: Bookmark) {
   };
 }
 
-function getCoverHeightClass(index: number) {
-  const variants = [
-    "aspect-[9/14]",
-    "aspect-[9/15]",
-    "aspect-[9/13]",
-    "aspect-[9/14]",
-    "aspect-[9/16]",
-    "aspect-[9/13]",
-  ];
-
-  return variants[index % variants.length];
-}
-
 function getReadableTitle(
   item: Bookmark,
   meta: ReturnType<typeof getPlatformMeta>,
 ) {
   return item.title || item.source || meta.label || item.url;
+}
+
+function getPreviewAspectClass(item: Bookmark) {
+  const source = `${item.source || ""} ${item.url || ""}`.toLowerCase();
+
+  const isVertical =
+    source.includes("tiktok") ||
+    source.includes("instagram.com/reel") ||
+    source.includes("youtube.com/shorts") ||
+    source.includes("vk.com/clip") ||
+    source.includes("vk clips") ||
+    source.includes("клипы");
+
+  if (isVertical) return "aspect-[9/16]";
+
+  const isHorizontal =
+    source.includes("youtube") ||
+    source.includes("youtu.be") ||
+    source.includes("vimeo");
+
+  if (isHorizontal) return "aspect-video";
+
+  if (item.content_type === "video") return "aspect-[9/14]";
+
+  return "aspect-[9/14]";
+}
+
+function getPlayerLayout(item: Bookmark) {
+  const source = `${item.source || ""} ${item.url || ""}`.toLowerCase();
+
+  const isVertical =
+    source.includes("tiktok") ||
+    source.includes("instagram.com/reel") ||
+    source.includes("youtube.com/shorts") ||
+    source.includes("vk.com/clip") ||
+    source.includes("vk clips") ||
+    source.includes("клипы");
+
+  return {
+    isVertical,
+    frameClass: isVertical ? "w-full max-w-[430px]" : "w-full max-w-5xl",
+    aspectRatio: isVertical ? "9 / 16" : "16 / 9",
+  };
 }
 
 export default function Index() {
@@ -181,6 +219,7 @@ export default function Index() {
   const [searching, setSearching] = useState(false);
   const [savedItems, setSavedItems] = useState<Set<number>>(new Set());
   const [playerItem, setPlayerItem] = useState<Bookmark | null>(null);
+  const [deletingIds, setDeletingIds] = useState<Set<number>>(new Set());
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadBookmarks = (q = "") => {
@@ -245,6 +284,34 @@ export default function Index() {
     });
   };
 
+  const handleDelete = async (id: number) => {
+    const prevBookmarks = bookmarks;
+    const prevSaved = savedItems;
+
+    setDeletingIds((prev) => new Set(prev).add(id));
+    setBookmarks((prev) => prev.filter((b) => b.id !== id));
+    setSavedItems((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+
+    try {
+      // Если API поддерживает удаление, раскомментируй:
+      // await fetch(`${API_URL}?id=${id}`, { method: "DELETE" });
+      await Promise.resolve();
+    } catch {
+      setBookmarks(prevBookmarks);
+      setSavedItems(prevSaved);
+    } finally {
+      setDeletingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+  };
+
   const openBookmark = (item: Bookmark) => {
     const embed = resolvePlayableEmbed(item);
 
@@ -282,6 +349,8 @@ export default function Index() {
   const navItemsWithBadge = NAV_ITEMS.map((item) =>
     item.id === "inbox" ? { ...item, badge: inboxCount || undefined } : item,
   );
+
+  const playerLayout = playerItem ? getPlayerLayout(playerItem) : null;
 
   return (
     <div className="flex h-screen bg-[#f6f6f7] overflow-hidden font-sans text-foreground">
@@ -515,13 +584,14 @@ export default function Index() {
                   >
                     <div className="overflow-hidden rounded-[28px] bg-white border border-black/6 shadow-[0_10px_28px_rgba(0,0,0,0.06)] transition-all duration-300 group-hover:-translate-y-1.5 group-hover:shadow-[0_18px_44px_rgba(0,0,0,0.10)]">
                       <div
-                        className={`relative ${getCoverHeightClass(i)} overflow-hidden bg-black`}
+                        className={`relative ${getPreviewAspectClass(item)} overflow-hidden bg-black`}
                       >
                         {item.preview_url ? (
                           <img
                             src={item.preview_url}
                             alt={title}
-                            className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+                            className="absolute inset-0 w-full h-full object-cover object-center transition-transform duration-500 group-hover:scale-[1.04]"
+                            loading="lazy"
                           />
                         ) : (
                           <div
@@ -579,27 +649,42 @@ export default function Index() {
                             {meta.chip}
                           </span>
 
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              toggleSaved(item.id);
-                            }}
-                            className={`p-2 rounded-full backdrop-blur-md transition-all duration-200
-                              ${
-                                savedItems.has(item.id)
-                                  ? "bg-white text-black opacity-100"
-                                  : "bg-black/35 text-white opacity-0 group-hover:opacity-100 hover:bg-black/55"
-                              }`}
-                          >
-                            <Icon
-                              name={
-                                savedItems.has(item.id)
-                                  ? "Bookmark"
-                                  : "BookmarkPlus"
-                              }
-                              size={14}
-                            />
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDelete(item.id);
+                              }}
+                              disabled={deletingIds.has(item.id)}
+                              className="p-2 rounded-full bg-red-500/85 text-white backdrop-blur-md opacity-0 group-hover:opacity-100 hover:bg-red-600 transition-all duration-200 disabled:opacity-60"
+                              title="Удалить"
+                            >
+                              <Icon name="Trash2" size={14} />
+                            </button>
+
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleSaved(item.id);
+                              }}
+                              className={`p-2 rounded-full backdrop-blur-md transition-all duration-200
+                                ${
+                                  savedItems.has(item.id)
+                                    ? "bg-white text-black opacity-100"
+                                    : "bg-black/35 text-white opacity-0 group-hover:opacity-100 hover:bg-black/55"
+                                }`}
+                              title="Сохранить"
+                            >
+                              <Icon
+                                name={
+                                  savedItems.has(item.id)
+                                    ? "Bookmark"
+                                    : "BookmarkPlus"
+                                }
+                                size={14}
+                              />
+                            </button>
+                          </div>
                         </div>
 
                         {hasPlayableEmbed && (
@@ -754,16 +839,19 @@ export default function Index() {
         onSaved={handleSaved}
       />
 
-      {playerItem && (
+      {playerItem && playerLayout && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in p-4"
           onClick={() => setPlayerItem(null)}
         >
           <div
-            className="relative w-full max-w-4xl mx-4 bg-black rounded-[28px] overflow-hidden shadow-2xl flex flex-col"
+            className={`relative ${playerLayout.frameClass} bg-black rounded-[28px] overflow-hidden shadow-2xl flex flex-col`}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="relative w-full" style={{ aspectRatio: "16/9" }}>
+            <div
+              className="relative w-full bg-black"
+              style={{ aspectRatio: playerLayout.aspectRatio }}
+            >
               <iframe
                 src={playerItem.embed_url || undefined}
                 className="absolute inset-0 w-full h-full"
