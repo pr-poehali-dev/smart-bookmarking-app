@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import Icon from "@/components/ui/icon";
 import AddBookmarkModal from "@/components/AddBookmarkModal";
 
@@ -60,26 +60,67 @@ function timeAgo(iso: string): string {
   return `${Math.floor(d / 7)} нед. назад`;
 }
 
+function getYouTubeVideoId(url: string): string | null {
+  try {
+    const u = new URL(url);
+
+    if (u.hostname.includes("youtube.com")) {
+      if (u.pathname.startsWith("/shorts/")) {
+        return u.pathname.split("/shorts/")[1]?.split("/")[0] || null;
+      }
+
+      const videoId = u.searchParams.get("v");
+      if (videoId) return videoId;
+    }
+
+    if (u.hostname.includes("youtu.be")) {
+      return u.pathname.replace("/", "") || null;
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function getInstagramPath(url: string): string | null {
+  try {
+    const u = new URL(url);
+    if (!u.hostname.includes("instagram.com")) return null;
+
+    if (u.pathname.startsWith("/reel/") || u.pathname.startsWith("/p/")) {
+      return u.pathname.endsWith("/") ? u.pathname : `${u.pathname}/`;
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 function buildEmbedUrl(url: string): string | null {
   try {
     const u = new URL(url);
 
     if (u.hostname.includes("youtube.com")) {
+      if (u.pathname.startsWith("/shorts/")) {
+        const videoId = u.pathname.split("/shorts/")[1]?.split("/")[0];
+        if (videoId) {
+          return `https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0`;
+        }
+      }
+
       const videoId = u.searchParams.get("v");
-      if (videoId) return `https://www.youtube.com/embed/${videoId}?autoplay=1`;
+      if (videoId) {
+        return `https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0`;
+      }
     }
 
     if (u.hostname.includes("youtu.be")) {
       const videoId = u.pathname.replace("/", "");
-      if (videoId) return `https://www.youtube.com/embed/${videoId}?autoplay=1`;
-    }
-
-    if (
-      u.hostname.includes("youtube.com") &&
-      u.pathname.startsWith("/shorts/")
-    ) {
-      const videoId = u.pathname.split("/shorts/")[1]?.split("/")[0];
-      if (videoId) return `https://www.youtube.com/embed/${videoId}?autoplay=1`;
+      if (videoId) {
+        return `https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0`;
+      }
     }
 
     if (u.hostname.includes("tiktok.com")) {
@@ -87,11 +128,9 @@ function buildEmbedUrl(url: string): string | null {
     }
 
     if (u.hostname.includes("instagram.com")) {
-      if (u.pathname.startsWith("/reel/") || u.pathname.startsWith("/p/")) {
-        const cleanPath = u.pathname.endsWith("/")
-          ? u.pathname
-          : `${u.pathname}/`;
-        return `https://www.instagram.com${cleanPath}embed`;
+      const path = getInstagramPath(url);
+      if (path) {
+        return `https://www.instagram.com${path}embed/captioned/`;
       }
     }
 
@@ -115,6 +154,7 @@ function getPlatformMeta(item: Bookmark) {
       chip: "Reels",
       gradient: "from-pink-500 via-fuchsia-500 to-orange-400",
       softBg: "bg-pink-50",
+      platform: "instagram" as const,
     };
   }
 
@@ -125,6 +165,7 @@ function getPlatformMeta(item: Bookmark) {
       chip: "TikTok",
       gradient: "from-neutral-950 via-neutral-900 to-cyan-500",
       softBg: "bg-neutral-100",
+      platform: "tiktok" as const,
     };
   }
 
@@ -135,6 +176,7 @@ function getPlatformMeta(item: Bookmark) {
       chip: "Клипы",
       gradient: "from-blue-600 via-sky-500 to-cyan-400",
       softBg: "bg-blue-50",
+      platform: "vk" as const,
     };
   }
 
@@ -145,6 +187,7 @@ function getPlatformMeta(item: Bookmark) {
       chip: "Видео",
       gradient: "from-red-600 via-rose-500 to-orange-400",
       softBg: "bg-red-50",
+      platform: "youtube" as const,
     };
   }
 
@@ -154,6 +197,7 @@ function getPlatformMeta(item: Bookmark) {
     chip: item.content_type === "video" ? "Видео" : "Контент",
     gradient: "from-slate-700 via-slate-600 to-slate-400",
     softBg: "bg-slate-100",
+    platform: "other" as const,
   };
 }
 
@@ -207,6 +251,27 @@ function getPlayerLayout(item: Bookmark) {
   };
 }
 
+function getBestPreviewUrl(item: Bookmark): string | null {
+  if (item.preview_url) return item.preview_url;
+
+  const ytId = getYouTubeVideoId(item.url);
+  if (ytId) {
+    return `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg`;
+  }
+
+  return null;
+}
+
+function isInstagramItem(item: Bookmark) {
+  const source = `${item.source || ""} ${item.url || ""}`.toLowerCase();
+  return source.includes("instagram");
+}
+
+function isEmbeddableInModal(item: Bookmark) {
+  if (isInstagramItem(item)) return false;
+  return Boolean(resolvePlayableEmbed(item));
+}
+
 export default function Index() {
   const [activeNav, setActiveNav] = useState("dashboard");
   const [activeTag, setActiveTag] = useState("Все");
@@ -218,7 +283,7 @@ export default function Index() {
   const [loadingData, setLoadingData] = useState(true);
   const [searching, setSearching] = useState(false);
   const [savedItems, setSavedItems] = useState<Set<number>>(new Set());
-  const [playerItem, setPlayerItem] = useState<Bookmark | null>(null);
+  const [playerIndex, setPlayerIndex] = useState<number | null>(null);
   const [deletingIds, setDeletingIds] = useState<Set<number>>(new Set());
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -312,45 +377,88 @@ export default function Index() {
     }
   };
 
-  const openBookmark = (item: Bookmark) => {
-    const embed = resolvePlayableEmbed(item);
+  const inboxCount = bookmarks.filter((b) => b.is_inbox).length;
 
-    if (embed) {
-      setPlayerItem({
-        ...item,
-        embed_url: embed,
-      });
+  const filtered = useMemo(() => {
+    return bookmarks.filter((b) => {
+      const matchNav =
+        activeNav === "inbox"
+          ? b.is_inbox
+          : activeNav === "boards"
+            ? !b.is_inbox
+            : true;
+
+      const matchTag =
+        activeTag === "Все" ||
+        (b.tags || []).some((t) =>
+          t.toLowerCase().includes(activeTag.toLowerCase()),
+        ) ||
+        b.content_type === activeTag.toLowerCase();
+
+      return matchNav && matchTag;
+    });
+  }, [bookmarks, activeNav, activeTag]);
+
+  const navItemsWithBadge = NAV_ITEMS.map((item) =>
+    item.id === "inbox" ? { ...item, badge: inboxCount || undefined } : item,
+  );
+
+  const currentPlayerItem =
+    playerIndex !== null ? filtered[playerIndex] || null : null;
+
+  const playerLayout = currentPlayerItem
+    ? getPlayerLayout(currentPlayerItem)
+    : null;
+
+  const openBookmark = (item: Bookmark) => {
+    const index = filtered.findIndex((b) => b.id === item.id);
+    if (index >= 0) {
+      setPlayerIndex(index);
       return;
     }
 
     window.open(item.url, "_blank", "noopener,noreferrer");
   };
 
-  const inboxCount = bookmarks.filter((b) => b.is_inbox).length;
+  const closePlayer = () => setPlayerIndex(null);
 
-  const filtered = bookmarks.filter((b) => {
-    const matchNav =
-      activeNav === "inbox"
-        ? b.is_inbox
-        : activeNav === "boards"
-          ? !b.is_inbox
-          : true;
+  const goPrev = () => {
+    if (playerIndex === null || filtered.length <= 1) return;
+    setPlayerIndex((prev) =>
+      prev === null ? 0 : (prev - 1 + filtered.length) % filtered.length,
+    );
+  };
 
-    const matchTag =
-      activeTag === "Все" ||
-      (b.tags || []).some((t) =>
-        t.toLowerCase().includes(activeTag.toLowerCase()),
-      ) ||
-      b.content_type === activeTag.toLowerCase();
+  const goNext = () => {
+    if (playerIndex === null || filtered.length <= 1) return;
+    setPlayerIndex((prev) =>
+      prev === null ? 0 : (prev + 1) % filtered.length,
+    );
+  };
 
-    return matchNav && matchTag;
-  });
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (playerIndex === null) return;
 
-  const navItemsWithBadge = NAV_ITEMS.map((item) =>
-    item.id === "inbox" ? { ...item, badge: inboxCount || undefined } : item,
-  );
+      if (e.key === "Escape") closePlayer();
+      if (e.key === "ArrowLeft") goPrev();
+      if (e.key === "ArrowRight") goNext();
+    };
 
-  const playerLayout = playerItem ? getPlayerLayout(playerItem) : null;
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [playerIndex, filtered.length]);
+
+  useEffect(() => {
+    if (playerIndex === null) return;
+    if (filtered.length === 0) {
+      setPlayerIndex(null);
+      return;
+    }
+    if (playerIndex > filtered.length - 1) {
+      setPlayerIndex(filtered.length - 1);
+    }
+  }, [filtered.length, playerIndex]);
 
   return (
     <div className="flex h-screen bg-[#f6f6f7] overflow-hidden font-sans text-foreground">
@@ -572,7 +680,9 @@ export default function Index() {
             <div className="columns-2 md:columns-3 xl:columns-4 2xl:columns-5 gap-5 [column-fill:_balance]">
               {filtered.map((item, i) => {
                 const meta = getPlatformMeta(item);
-                const hasPlayableEmbed = Boolean(resolvePlayableEmbed(item));
+                const bestPreviewUrl = getBestPreviewUrl(item);
+                const hasPlayableModal =
+                  isEmbeddableInModal(item) || isInstagramItem(item);
                 const title = getReadableTitle(item, meta);
 
                 return (
@@ -586,9 +696,9 @@ export default function Index() {
                       <div
                         className={`relative ${getPreviewAspectClass(item)} overflow-hidden bg-black`}
                       >
-                        {item.preview_url ? (
+                        {bestPreviewUrl ? (
                           <img
-                            src={item.preview_url}
+                            src={bestPreviewUrl}
                             alt={title}
                             className="absolute inset-0 w-full h-full object-cover object-center transition-transform duration-500 group-hover:scale-[1.04]"
                             loading="lazy"
@@ -599,7 +709,7 @@ export default function Index() {
                           />
                         )}
 
-                        {!item.preview_url && (
+                        {!bestPreviewUrl && (
                           <>
                             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.30),transparent_28%),radial-gradient(circle_at_bottom_left,rgba(255,255,255,0.18),transparent_24%)]" />
                             <div className="absolute inset-0 flex flex-col justify-between p-4">
@@ -687,7 +797,7 @@ export default function Index() {
                           </div>
                         </div>
 
-                        {hasPlayableEmbed && (
+                        {hasPlayableModal && (
                           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                             <div className="w-14 h-14 rounded-full bg-black/35 backdrop-blur-md flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 scale-95 group-hover:scale-100 border border-white/15">
                               <Icon
@@ -839,48 +949,140 @@ export default function Index() {
         onSaved={handleSaved}
       />
 
-      {playerItem && playerLayout && (
+      {currentPlayerItem && playerLayout && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in p-4"
-          onClick={() => setPlayerItem(null)}
+          onClick={closePlayer}
         >
+          <div
+            className="absolute inset-y-0 left-2 md:left-5 flex items-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={goPrev}
+              className="w-11 h-11 rounded-full bg-white/10 hover:bg-white/20 text-white backdrop-blur-md border border-white/10 transition-colors"
+              title="Предыдущее"
+            >
+              <div className="flex items-center justify-center">
+                <Icon name="ChevronLeft" size={20} />
+              </div>
+            </button>
+          </div>
+
+          <div
+            className="absolute inset-y-0 right-2 md:right-5 flex items-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={goNext}
+              className="w-11 h-11 rounded-full bg-white/10 hover:bg-white/20 text-white backdrop-blur-md border border-white/10 transition-colors"
+              title="Следующее"
+            >
+              <div className="flex items-center justify-center">
+                <Icon name="ChevronRight" size={20} />
+              </div>
+            </button>
+          </div>
+
           <div
             className={`relative ${playerLayout.frameClass} bg-black rounded-[28px] overflow-hidden shadow-2xl flex flex-col`}
             onClick={(e) => e.stopPropagation()}
           >
-            <div
-              className="relative w-full bg-black"
-              style={{ aspectRatio: playerLayout.aspectRatio }}
-            >
-              <iframe
-                src={playerItem.embed_url || undefined}
-                className="absolute inset-0 w-full h-full"
-                allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
-                allowFullScreen
-                referrerPolicy="strict-origin-when-cross-origin"
-              />
-            </div>
+            {isEmbeddableInModal(currentPlayerItem) ? (
+              <div
+                className="relative w-full bg-black"
+                style={{ aspectRatio: playerLayout.aspectRatio }}
+              >
+                <iframe
+                  key={currentPlayerItem.id}
+                  src={resolvePlayableEmbed(currentPlayerItem) || undefined}
+                  className="absolute inset-0 w-full h-full"
+                  allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+                  allowFullScreen
+                  referrerPolicy="strict-origin-when-cross-origin"
+                />
+              </div>
+            ) : (
+              <div
+                className="relative w-full bg-black flex items-center justify-center"
+                style={{ aspectRatio: playerLayout.aspectRatio }}
+              >
+                {getBestPreviewUrl(currentPlayerItem) ? (
+                  <img
+                    src={getBestPreviewUrl(currentPlayerItem)!}
+                    alt={currentPlayerItem.title}
+                    className="absolute inset-0 w-full h-full object-cover"
+                  />
+                ) : (
+                  <div
+                    className={`absolute inset-0 bg-gradient-to-br ${getPlatformMeta(currentPlayerItem).gradient}`}
+                  />
+                )}
+
+                <div className="absolute inset-0 bg-black/35" />
+
+                <div className="relative z-10 px-6 text-center">
+                  <div className="mx-auto mb-4 w-16 h-16 rounded-full bg-white/15 backdrop-blur-md border border-white/15 flex items-center justify-center">
+                    <Icon
+                      name={getPlatformMeta(currentPlayerItem).icon}
+                      size={26}
+                      className="text-white"
+                    />
+                  </div>
+
+                  <p className="text-white text-[18px] font-semibold">
+                    Предпросмотр Instagram
+                  </p>
+                  <p className="text-white/70 text-[13px] mt-2 max-w-[280px]">
+                    Для Instagram показываем красивую обложку вместо тяжелого
+                    embed.
+                  </p>
+
+                  <a
+                    href={currentPlayerItem.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex mt-5 items-center gap-2 px-4 py-2.5 rounded-2xl bg-white text-black text-[13px] font-semibold hover:bg-white/90 transition-colors"
+                  >
+                    <Icon name="ExternalLink" size={14} />
+                    Открыть в Instagram
+                  </a>
+                </div>
+              </div>
+            )}
 
             <div className="bg-[#111] px-5 py-4 flex items-start justify-between gap-4">
               <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-white/10 text-white/70">
+                    {playerIndex !== null
+                      ? `${playerIndex + 1} / ${filtered.length}`
+                      : ""}
+                  </span>
+                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-white/10 text-white/70">
+                    {getPlatformMeta(currentPlayerItem).label}
+                  </span>
+                </div>
+
                 <h2 className="text-[15px] font-semibold text-white leading-snug line-clamp-2">
-                  {playerItem.title}
+                  {currentPlayerItem.title ||
+                    getPlatformMeta(currentPlayerItem).label}
                 </h2>
 
                 <div className="flex items-center gap-3 mt-1.5 flex-wrap">
                   <span className="flex items-center gap-1 text-[12px] text-white/50">
                     <Icon name="Globe" size={11} />
-                    {playerItem.source}
+                    {currentPlayerItem.source}
                   </span>
 
-                  {playerItem.topic && (
+                  {currentPlayerItem.topic && (
                     <span className="flex items-center gap-1 text-[12px] text-indigo-400">
                       <Icon name="Tag" size={11} />
-                      {playerItem.topic}
+                      {currentPlayerItem.topic}
                     </span>
                   )}
 
-                  {(playerItem.tags || []).slice(0, 3).map((tag) => (
+                  {(currentPlayerItem.tags || []).slice(0, 3).map((tag) => (
                     <span
                       key={tag}
                       className="text-[11px] px-2 py-0.5 rounded-full bg-white/10 text-white/60"
@@ -890,16 +1092,16 @@ export default function Index() {
                   ))}
                 </div>
 
-                {playerItem.description && (
+                {currentPlayerItem.description && (
                   <p className="text-[12px] text-white/40 mt-1.5 line-clamp-2">
-                    {playerItem.description}
+                    {currentPlayerItem.description}
                   </p>
                 )}
               </div>
 
               <div className="flex items-center gap-2 flex-shrink-0">
                 <a
-                  href={playerItem.url}
+                  href={currentPlayerItem.url}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-[12px] font-medium transition-colors"
@@ -910,7 +1112,7 @@ export default function Index() {
                 </a>
 
                 <button
-                  onClick={() => setPlayerItem(null)}
+                  onClick={closePlayer}
                   className="p-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white/70 hover:text-white transition-colors"
                 >
                   <Icon name="X" size={16} />
